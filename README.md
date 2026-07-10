@@ -2,9 +2,9 @@
 
 # Agro — LoRa Greenhouse Monitoring on Raspberry Pi
 
-Field-deployed monitoring system for a small family greenhouse operation. Battery-friendly ESP32 sensor nodes report air temperature, humidity, and soil moisture over 868 MHz LoRa radio to a Raspberry Pi gateway. The Pi runs a Python backend, stores every reading in SQLite, and pushes plain-language alerts through a Telegram bot.
+Field-deployed monitoring system for a small commercial greenhouse operation. Battery-friendly ESP32 sensor nodes report air temperature, humidity, and soil moisture over 868 MHz LoRa radio to a Raspberry Pi gateway. The Pi runs a Python backend, stores every reading in SQLite, and pushes plain-language alerts through a Telegram bot.
 
-The primary user is the project owner's father — a non-technical daily operator. Design priority: readable Telegram notifications over complex dashboards.
+The primary user is a non-technical daily operator. Design priority: readable Telegram notifications over complex dashboards.
 
 This repository doubles as a portfolio artefact for embedded / defence-sector roles: C++ firmware on ESP32, LoRa radio at 868 MHz, full-stack Python backend, and a real field deployment on a working farm.
 
