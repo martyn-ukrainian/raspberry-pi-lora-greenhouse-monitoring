@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -15,6 +16,7 @@ class Measurement(SQLModel, table=True):
     air_temperature: float
     air_humidity: float
     soil_moisture: float
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MeasurementRepository:
