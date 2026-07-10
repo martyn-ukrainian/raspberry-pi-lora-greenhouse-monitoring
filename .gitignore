@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SQLite dev databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# macOS
+.DS_Store
+
+# Editors / IDE
+.vscode/
+.idea/
+*.swp
