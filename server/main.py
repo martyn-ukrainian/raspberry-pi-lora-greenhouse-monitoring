@@ -1,19 +1,15 @@
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-logger = loggin.getLogger(__name__)
-
 from fastapi import FastAPI
 
 from database import init_db
+from logger import get_logger, setup_logging
 from measurements import router as measurements_router
 
+setup_logging()
+logger = get_logger(__name__)
+
 init_db()
+
+logger.info("App starting!")
 
 app = FastAPI()
 app.include_router(measurements_router)
