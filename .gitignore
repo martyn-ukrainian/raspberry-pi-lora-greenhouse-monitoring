@@ -22,3 +22,8 @@ env/
 .vscode/
 .idea/
 *.swp
+
+
+.env
+.env.local
+.env.*.local
