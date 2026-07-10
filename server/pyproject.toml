@@ -8,3 +8,26 @@ dependencies = [
     "fastapi[standard]>=0.139.0",
     "sqlmodel>=0.0.39",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.21",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestryle errors (порушення PEP 8)
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes (реальні баги - невживані змінніб невизначені імена)
+  "I",    # isort (порядок імпортів)
+  "UP",   # pyupgrade (сучасний Python-синтаксис замість застарілого)
+  "B",    # bugbear (типові пастки - mutable default args, etc.)
+  "SIM",  # simplify (натяки на спрощення коду)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["database", "logger", "measurements"]
