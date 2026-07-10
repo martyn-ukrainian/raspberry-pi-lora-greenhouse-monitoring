@@ -1,31 +1,38 @@
-# Agro — автоматизація теплиць (LoRa + ESP32)
+> [Українська версія](./README-UA.md)
 
-Система моніторингу й керування комерційними теплицями сімейного господарства. Датчики в кожній теплиці передають дані по LoRa-радіо на шлюз, звідти вони потрапляють на Raspberry Pi, де працює бекенд, а далі йдуть у Telegram у вигляді зрозумілих сповіщень.
+# Agro — LoRa Greenhouse Monitoring on Raspberry Pi
 
-Головний користувач — тато власника проекту, людина нетехнічна. Тому пріоритет на прості Telegram-сповіщення зрозумілою мовою, а не складні дашборди.
+Field-deployed monitoring system for a small family greenhouse operation. Battery-friendly ESP32 sensor nodes report air temperature, humidity, and soil moisture over 868 MHz LoRa radio to a Raspberry Pi gateway. The Pi runs a Python backend, stores every reading in SQLite, and pushes plain-language alerts through a Telegram bot.
 
-Проект також є портфоліо для вакансій в оборонному секторі: вбудовані системи, LoRa-радіозв'язок, повний стек і реальне польове розгортання. Публічний англомовний README планується для GitHub.
+The primary user is the project owner's father — a non-technical daily operator. Design priority: readable Telegram notifications over complex dashboards.
 
-## Масштаб
+This repository doubles as a portfolio artefact for embedded / defence-sector roles: C++ firmware on ESP32, LoRa radio at 868 MHz, full-stack Python backend, and a real field deployment on a working farm.
 
-Наразі вісім теплиць: п'ять основних робочих з огірками й помідорами, одна розсадна (виступає хабом системи), одна нова стандартна й одна нова двоплівкова. Теплиці розкидані на дистанції від 50 до 250 метрів. Фаза 1 покриває три сенсорні вузли й один шлюз.
+## Scale
 
-## Архітектура коротко
+Eight greenhouses total: five active cucumber and tomato houses, one seedling house that acts as the system hub, one new standard house, and one new double-film house. Distances between houses: 50–250 m. Phase 1 covers three sensor nodes and one gateway.
 
-Кожна теплиця — автономний вузол на ESP32 з датчиками, який передає показники по LoRa на частоті 868 МГц. Дані стікаються на центральний шлюз у розсадній теплиці, звідти через USB потрапляють на Raspberry Pi. На малині працює бекенд на Python (FastAPI + SQLite), який зберігає всі виміри й формує сповіщення. Готові до дії повідомлення йдуть татові через Telegram-бота. Детальний опис — у файлі docs/architecture.md.
+## Architecture
 
-## Структура репозиторію
+Each greenhouse is an autonomous node built on a **Heltec WiFi LoRa 32 V3** (ESP32-S3 with SX1262). Each node carries an **SHT31** for air temperature and humidity, plus a **v1.2 capacitive soil-moisture sensor**. Readings are transmitted over **868 MHz LoRa**. A gateway node in the seedling greenhouse aggregates all traffic and forwards it via USB to a **Raspberry Pi 5**. The Pi runs a **Python + FastAPI** backend backed by **SQLite (via SQLModel)**, applies threshold logic, and sends notifications through a **Telegram bot**.
 
-Папка server — бекенд, який приймає, зберігає й віддає дані. Розробляється на комп'ютері, потім переноситься на Raspberry Pi без змін. Стек: Python, FastAPI, SQLite.
+Full breakdown in [`docs/architecture.md`](./docs/architecture.md).
 
-Папка firmware — прошивки вузлів і шлюзу. Мова C++ (Arduino або PlatformIO).
+## Repository layout
 
-Папка docs — документація, схеми й журнал емпіричних порогів. Формат Markdown.
+- **`server/`** — Python backend that ingests, stores, and serves measurements. Developed on a laptop first, then copied to the Pi unchanged. Stack: Python 3.13, FastAPI, SQLModel, SQLite.
+- **`firmware/`** — Node and gateway firmware in C++ (Arduino / PlatformIO).
+- **`docs/`** — Architecture notes, repository structure, and an ongoing log of empirical thresholds and decisions.
 
-## Фази
+## Phases
 
-Перша фаза — моніторинг: датчики, графіки й Telegram-алерти, без виконавчих механізмів. Друга — полив: помпа або клапан за розкладом плюс датчик вологості ґрунту. Третя — вентиляція й температура: актуатор кватирки або витяжний вентилятор.
+1. **Monitoring.** Sensor ingestion, storage, graphs, Telegram alerts. No actuators.
+2. **Irrigation.** Pump or valve on a schedule, plus soil-moisture-driven control.
+3. **Ventilation and temperature.** Window actuator or extraction fan.
 
-## Технічний стек
+## Tech stack
 
-Heltec WiFi LoRa 32 V3 (ESP32-S3 з чипом SX1262, 868 МГц), Raspberry Pi 5, FastAPI, SQLite, Telegram Bot API. Датчики: SHT31 для температури й вологості повітря та ємнісні датчики вологості ґрунту версії 1.2.
+- **Hardware:** Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262, 868 MHz), Raspberry Pi 5, SHT31, capacitive soil moisture v1.2.
+- **Backend:** Python 3.13, FastAPI, SQLModel, SQLite.
+- **Firmware:** C++ (Arduino / PlatformIO).
+- **Notifications:** Telegram Bot API.
