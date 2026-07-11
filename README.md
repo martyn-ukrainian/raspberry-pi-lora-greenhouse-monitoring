@@ -18,6 +18,65 @@ Each greenhouse is an autonomous node built on a **Heltec WiFi LoRa 32 V3** (ESP
 
 Full breakdown in [`docs/architecture.md`](./docs/architecture.md).
 
+### Data flow
+
+```
+                    Greenhouse
+  ┌───────────────────────────────────────────────────┐
+  │                                                   │
+  │   ┌───────────────────────────────────────────┐   │
+  │   │  LoRa Node — Heltec V3 (ESP32-S3+SX1262)  │   │
+  │   │                                           │   │
+  │   │   ┌──────────────┐  ┌──────────────────┐  │   │
+  │   │   │ SHT31        │  │ Capacitive Soil  │  │   │
+  │   │   │ air temp     │  │ Moisture v1.2    │  │   │
+  │   │   │ air humidity │  │                  │  │   │
+  │   │   └──────────────┘  └──────────────────┘  │   │
+  │   └───────────────────┬───────────────────────┘   │
+  └───────────────────────┼───────────────────────────┘
+                          │ LoRa 868 MHz
+                          ▼
+                  ┌───────────────────┐
+                  │  Gateway Node     │
+                  │  (Heltec V3)      │
+                  └─────────┬─────────┘
+                            │ USB
+                            ▼
+                  ┌───────────────────┐
+                  │  Raspberry Pi 5   │
+                  │  FastAPI + SQLite │
+                  │  Alerts logic     │
+                  └─────────┬─────────┘
+                            │ Telegram Bot API
+                            ▼
+                  ┌───────────────────┐
+                  │  Operator         │
+                  │  (Telegram app)   │
+                  └───────────────────┘
+```
+
+### Logical hierarchy
+
+Each greenhouse hosts one LoRa node, and each LoRa node carries multiple sensors. The backend organises configuration and alerting around this three-level structure:
+
+```
+agro-server
+├── greenhouses/
+│   ├── greenhouse-1  "Seedling (cucumbers)"
+│   │   └── LoRa Node (Heltec V3)
+│   │       ├── SHT31       → air_temperature, air_humidity
+│   │       └── Capacitive  → soil_moisture
+│   ├── greenhouse-2  "Cucumbers primary"
+│   │   └── LoRa Node
+│   │       ├── SHT31       → air_temperature, air_humidity
+│   │       └── Capacitive  → soil_moisture
+│   └── ...
+└── notifiers/
+    └── Telegram  (direct bot OR via bot hub)
+```
+
+Thresholds and alert config live per-greenhouse. Each sensor may override dwell time; a shared `defaults` block applies otherwise.
+
 ## Repository layout
 
 - **`server/`** — Python backend that ingests, stores, and serves measurements. Developed on a laptop first, then copied to the Pi unchanged. Stack: Python 3.13, FastAPI, SQLModel, SQLite.
@@ -29,6 +88,42 @@ Full breakdown in [`docs/architecture.md`](./docs/architecture.md).
 1. **Monitoring.** Sensor ingestion, storage, graphs, Telegram alerts. No actuators.
 2. **Irrigation.** Pump or valve on a schedule, plus soil-moisture-driven control.
 3. **Ventilation and temperature.** Window actuator or extraction fan.
+
+## Deployment models
+
+The codebase is designed to support **two distribution modes**, selected by configuration. Both modes run identical core code — only the notifier layer differs.
+
+**Model A — Self-hosted (open source).** Each operator clones the repo, runs the server on their own Raspberry Pi, and creates their own Telegram bot via @BotFather. Full data ownership, no external dependencies.
+
+```
+    ┌──────────────────┐
+    │ Operator's Bot   │  (created via @BotFather)
+    │ (@Farmer1Bot)    │
+    └────────┬─────────┘
+             │
+    ┌────────▼─────────┐
+    │ agro-server #1   │  (own DB, own config)
+    └──────────────────┘
+```
+
+**Model B — Central hub (SaaS).** A single Telegram bot serves many isolated `agro-server` instances. Users register on the hub, deep-link their account to the bot, and the hub routes messages to the correct instance. Enables managed deployments for non-technical operators.
+
+```
+                    ┌─────────────────────────┐
+                    │  agro-bot-hub (SaaS)    │
+                    │  @AgroMonitorBot        │
+                    │  Route: token → server  │
+                    └──────┬──────────────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+   ┌─────────┐        ┌─────────┐        ┌─────────┐
+   │agro-#1  │        │agro-#2  │        │agro-#3  │
+   │Farmer 1 │        │Farmer 2 │        │  SaaS   │
+   └─────────┘        └─────────┘        └─────────┘
+```
+
+Model selection is a `.env` switch: `NOTIFIER=telegram_direct` (own bot) vs `NOTIFIER=telegram_hub` (shared hub). See [`docs/alerts.md`](./docs/alerts.md) for the detailed design.
 
 ## Tech stack
 
