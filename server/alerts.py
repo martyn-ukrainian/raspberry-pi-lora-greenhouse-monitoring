@@ -8,6 +8,7 @@
 # stdlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Protocol
 
 # third-party
 from pydantic import BaseModel
@@ -17,6 +18,22 @@ from logger import get_logger
 from thresholds import SensorThresholds, thresholds
 
 logger = get_logger(__name__)
+
+
+class SensorReading(Protocol):
+    """
+    Структурний контракт вхідних даних для check().
+
+    Будь-який об'єкт з цими полями годиться - SQLModel-таблиця Measurement,
+    fake для тесту, dict.get-wrapper, тощо. alerts.py не має знати
+    з якого сховища прийшли дані.
+    """
+
+    node_id: str
+    air_temperature: float
+    air_humidity: float
+    soil_moisture: float
+    timestamp: datetime
 
 
 class Alert(BaseModel):
@@ -78,7 +95,7 @@ def _check_sensor(
     kind, boundary = _classify(value, sensor_config)
     state = _get_state(node_id, sensor_name)
 
-    #  Все в нормі: скинути початок аномалії, cooldown лишається
+    # Все в нормі: скинути початок аномалії, cooldown лишається
     if kind is None:
         state.out_since = None
         return None
@@ -109,3 +126,35 @@ def _check_sensor(
         boundary=boundary,
         duration_minutes=int(duration.total_seconds() / 60),
     )
+
+
+def check(measurement: SensorReading) -> list[Alert]:
+    """
+    Головна функція. Перевіряє вимір проти порогів своєї теплиці по трьох
+    датчиках. Повертає список Alert-ів (0-3 залежно від того, скільки
+    датчиків спрацювали).
+    """
+    greenhouse = thresholds.greenhouses.get(measurement.node_id)
+    if greenhouse is None:
+        logger.warning("No thresholds config for node %s", measurement.node_id)
+        return []
+
+    alerts: list[Alert] = []
+    sensors = [
+        ("air_temperature", greenhouse.air_temperature, measurement.air_temperature),
+        ("air_humidity", greenhouse.air_humidity, measurement.air_humidity),
+        ("soil_moisture", greenhouse.soil_moisture, measurement.soil_moisture),
+    ]
+
+    for sensor_name, sensor_config, value in sensors:
+        alert = _check_sensor(
+            node_id=measurement.node_id,
+            label=greenhouse.label,
+            sensor_name=sensor_name,
+            value=value,
+            sensor_config=sensor_config,
+            timestamp=measurement.timestamp,
+        )
+        if alert is not None:
+            alerts.append(alert)
+    return alerts

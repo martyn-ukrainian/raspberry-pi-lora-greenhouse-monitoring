@@ -36,5 +36,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///agro.db"
 
+    telegram_token: str
+    telegram_chat_id: str
+
 
 settings = Settings()

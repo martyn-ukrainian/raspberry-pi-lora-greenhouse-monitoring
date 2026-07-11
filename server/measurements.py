@@ -4,8 +4,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlmodel import Field, Session, SQLModel, select
 
+from alerts import check
 from database import engine
 from logger import get_logger
+from notifiers import get_notifier
+from notifiers.base import Notifier
 
 logger = get_logger(__name__)
 
@@ -42,13 +45,20 @@ def get_repository() -> MeasurementRepository:
 router = APIRouter(prefix="/measurements", tags=["measurements"])
 
 RepositoryDep = Annotated[MeasurementRepository, Depends(get_repository)]
+NotifierDep = Annotated[Notifier, Depends(get_notifier)]
 
 
 @router.post("")
-def create_measurement(measurement: Measurement, repo: RepositoryDep) -> Measurement:
+def create_measurement(
+    measurement: Measurement, repo: RepositoryDep, notifier: NotifierDep
+) -> Measurement:
     logger.info("Received measurement from node %s", measurement.node_id)
     saved = repo.create(measurement)
     logger.info("Saved measurement id=%d for node %s", saved.id, saved.node_id)
+
+    for alert in check(saved):
+        notifier.send(alert)
+
     return saved
 
 
