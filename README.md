@@ -123,6 +123,36 @@ The codebase is designed to support **two distribution modes**, selected by conf
    └─────────┘        └─────────┘        └─────────┘
 ```
 
+**Full hierarchy — from the shared bot down to individual sensors on each isolated instance:**
+
+```
+                                      ┌──────────────────┐
+                                      │  agro-bot-hub    │
+                                      │ @AgroMonitorBot  │
+                                      └────────┬─────────┘
+                                               │
+                    ┌──────────────────────────┼──────────────────────────┐
+                    ▼                          ▼                          ▼
+             ┌─────────────┐            ┌─────────────┐            ┌─────────────┐
+             │  agro-#1    │            │  agro-#2    │            │  agro-#3    │
+             │  Farmer 1   │            │  Farmer 2   │            │    SaaS     │
+             └──────┬──────┘            └──────┬──────┘            └──────┬──────┘
+                    │                          │                          │
+                    ▼                          ▼                          ▼
+             ┌─────────────┐            ┌─────────────┐            ┌─────────────┐
+             │ greenhouse  │            │ greenhouse  │            │ greenhouse  │
+             │   (LoRa)    │            │   (LoRa)    │            │   (LoRa)    │
+             └──────┬──────┘            └──────┬──────┘            └──────┬──────┘
+                    │                          │                          │
+              ┌─────┼─────┐              ┌─────┼─────┐              ┌─────┼─────┐
+              ▼     ▼     ▼              ▼     ▼     ▼              ▼     ▼     ▼
+            ┌───┐ ┌───┐ ┌───┐          ┌───┐ ┌───┐ ┌───┐          ┌───┐ ┌───┐ ┌───┐
+            │s-1│ │s-2│ │s-3│          │s-1│ │s-2│ │s-3│          │s-1│ │s-2│ │s-3│
+            └───┘ └───┘ └───┘          └───┘ └───┘ └───┘          └───┘ └───┘ └───┘
+```
+
+Each `agro-#N` is a fully isolated `agro-server` deployment with its own database and greenhouses. The `agro-bot-hub` routes notifications between the shared Telegram bot and the correct instance, based on a per-user token generated at Telegram-linking time.
+
 Model selection is a `.env` switch: `NOTIFIER=telegram_direct` (own bot) vs `NOTIFIER=telegram_hub` (shared hub). See [`docs/alerts.md`](./docs/alerts.md) for the detailed design.
 
 ## Tech stack
