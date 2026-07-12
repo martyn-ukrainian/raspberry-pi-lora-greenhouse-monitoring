@@ -39,5 +39,10 @@ class Settings(BaseSettings):
     telegram_token: str
     telegram_chat_id: str
 
+    server_url: str = "http://127.0.0.1:8000"
+    serial_port: str = "/tmp/agro_adapter"
+    gateway_port: str = "/tmp/agro_gateway"
+    baudrate: int = 115200
+
 
 settings = Settings()

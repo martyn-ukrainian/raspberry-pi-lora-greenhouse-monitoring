@@ -22,7 +22,7 @@ INTERVAL_SECONDS = 5
 def make_measurement(node_id: str) -> dict:
     return {
         "node_id": node_id,
-        "air_temperature": round(random.uniform(38, 42), 1),
+        "air_temperature": round(random.uniform(20, 30), 1),
         "air_humidity": round(random.uniform(50, 80), 1),
         "soil_moisture": round(random.uniform(30, 60), 1),
     }

@@ -8,16 +8,17 @@ import json
 import random
 import time
 
+from settings import settings
 from simulate import INTERVAL_SECONDS
 
-GATEWAY_PORT = "/tmp/agro_gateway"
+GATEWAY_PORT = settings.gateway_port
 
 
 def make_packet(node_id: int) -> dict:
     return {
         "type": "measurement",
         "node_id": node_id,
-        "air_temperature": round(random.uniform(38, 42), 1),
+        "air_temperature": round(random.uniform(20, 30), 1),
         "air_humidity": round(random.uniform(50, 80), 1),
         "soil_moisture": round(random.uniform(30, 60), 1),
         "rssi": random.randint(-110, -70),

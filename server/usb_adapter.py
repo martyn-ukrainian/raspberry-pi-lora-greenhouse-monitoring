@@ -15,14 +15,14 @@ import yaml
 from pydantic import BaseModel
 
 from logger import get_logger
+from settings import settings
 
 logger = get_logger(__name__)
 
 
-# SERIAL_PORT = "/dev/tty.usbserial-XXX"
-SERIAL_PORT = "/tmp/agro_adapter"
-BAUDRATE = 115200
-SERVER_URL = "http://127.0.0.1:8000"
+SERIAL_PORT = settings.serial_port
+BAUDRATE = settings.baudrate
+SERVER_URL = settings.server_url
 NODES_CONFIG_PATH = Path(__file__).parent / "config" / "nodes.yaml"
 
 
