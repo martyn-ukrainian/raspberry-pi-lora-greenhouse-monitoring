@@ -18,7 +18,7 @@ greenhouses:
     air_temperature:
       min: 24.0
       max: 28.0
-      dwell_minutes: 3 # температура стрибає швидко, коротша витримка
+      dwell_minutes: 1 # температура стрибає швидко, коротша витримка
     air_humidity:
       min: 75.0
       max: 90.0
