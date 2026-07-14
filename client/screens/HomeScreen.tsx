@@ -1,16 +1,19 @@
 import { useState } from "react"
-import { View, Text, ActivityIndicator, RefreshControl, ScrollView } from "react-native"
-
-import { useMeasurements } from "../hooks/useMeasurements";
-import { formatTime } from "../utils/dateformat";
+import { View, Text } from "react-native"
 
 import Screen from "../components/Screen";
 import MiniChart from "../components/MiniChart";
+
+import { useMeasurements } from "../hooks/useMeasurements";
+import { useGreenhouses } from "../hooks/useGreenhouses";
+import { formatTime } from "../utils/dateformat";
+
 
 import type { Measurement } from "../types"
 
 export default function HomeScreen() {
   const { data, isLoading, error, refetch } = useMeasurements()
+  const { data: gData } = useGreenhouses()
   const [refreshing, setRefreshing] = useState(false)
 
   const handleRefresh = async () => {
@@ -41,7 +44,15 @@ export default function HomeScreen() {
         latest: sorted[sorted.length - 1],
         history: sorted.slice(-20),
       }
-    })
+    });
+
+  const labels = Object.fromEntries(
+    (gData ?? []).map(g => [g.node_id, g.label])
+  )
+
+  const configByNode = Object.fromEntries(
+    (gData ?? []).map(g => [g.node_id, g])
+  );
 
   // const latestByNode = measurements.reduce<Record<string, typeof measurements[0]>>(
   //   (acc, m) => {
@@ -74,19 +85,21 @@ export default function HomeScreen() {
           <View key={g.nodeId} className="bg-white p-4 rounded-lg mb-3">
             <View className="flex-row justify-between items-start">
               <Text className="text-brand text-lg font-semibold mb-2">
-                {g.nodeId}
+                {labels[g.nodeId] ?? g.nodeId}
               </Text>
 
               <Text className="text-stone-500">{formatTime(g.latest.timestamp)}</Text>
             </View>
 
-            <MiniChart data={chartData}/>
+            <MiniChart
+              data={chartData}
+              min={configByNode[g.nodeId]?.thresholds.air_temperature.min}
+                max={configByNode[g.nodeId]?.thresholds.air_temperature.max}
+            />
             <View className="flex-row mt-3">
-                  <Text className="text-stone-900 mr-4">T: {g.latest.air_temperature.toFixed(1)}°C</Text>
-                <Text className="text-stone-900 mr-4">H: {g.latest.air_humidity.toFixed(0)}%</Text>
-                <Text className="text-stone-900">M: {g.latest.soil_moisture.toFixed(0)}%</Text>
-
-
+              <Text className="text-stone-900 mr-4">T: {g.latest.air_temperature.toFixed(1)}°C</Text>
+              <Text className="text-stone-900 mr-4">H: {g.latest.air_humidity.toFixed(0)}%</Text>
+              <Text className="text-stone-900">M: {g.latest.soil_moisture.toFixed(0)}%</Text>
             </View>
           </View>
         )
