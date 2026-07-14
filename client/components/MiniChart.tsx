@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { View, Platform } from "react-native";
 import { CartesianChart, Line, Area } from "victory-native";
 import { matchFont, Line as SkiaLine, DashPathEffect } from "@shopify/react-native-skia";
@@ -22,12 +23,22 @@ export default function MiniChart({
   min,
   max,
 }: Props) {
+  const yDomain = useMemo(() => {
+    if (data.length === 0) return undefined;
+    const ys = data.map((d) => d.y);
+    const bounds = [...ys];
+    if (min != null) bounds.push(min);
+    if (max != null) bounds.push(max);
+    return [Math.min(...bounds), Math.max(...bounds)] as [number, number];
+  }, [data, min, max]);
+
   return (
     <View style={{ height }}>
       <CartesianChart
         data={data}
         xKey="x"
         yKeys={["y"]}
+        domain={yDomain ? { y: yDomain } : undefined}
         domainPadding={{ top: 4, bottom: 4, left: 4, right: 4 }}
         axisOptions={{
           font,

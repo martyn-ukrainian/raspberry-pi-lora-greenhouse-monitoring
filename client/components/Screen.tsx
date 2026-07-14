@@ -10,7 +10,7 @@ type ScreenProps = {
   onRetry?: () => void;
   refreshing?: boolean;
   onRefresh?: () => void;
-
+  topInset?: boolean;
 }
 
 export default function Screen({
@@ -20,10 +20,12 @@ export default function Screen({
   error,
   onRetry,
   refreshing = false,
-  onRefresh
+  onRefresh,
+  topInset = true,
 }: ScreenProps) {
+  const edges: ("top" | "bottom" | "left" | "right")[] = topInset ? ["top"] : [];
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-stone-100">
+    <SafeAreaView edges={edges} className="flex-1 bg-stone-100">
       {hasLoading ? (
         <View className="flex-1 items-center justify-center pt-16">
           <ActivityIndicator size="large" color="#586E5A" />

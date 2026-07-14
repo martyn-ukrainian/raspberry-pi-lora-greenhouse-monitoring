@@ -20,11 +20,15 @@ export async function createMeasurement(data: {
 export async function getAggregate(
   nodeId: string,
   bucketMinutes: number = 5,
+  since?: Date,
 ): Promise<AggregateBucket[]> {
   const params = new URLSearchParams({
     node_id: nodeId,
     bucket_minutes: String(bucketMinutes),
   });
+  if (since) {
+    params.set("since", since.toISOString());
+  }
 
   return apiClient<AggregateBucket[]>(`/measurements/aggregate?${params}`)
 }
