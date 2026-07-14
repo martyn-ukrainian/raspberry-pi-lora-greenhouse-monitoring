@@ -30,3 +30,15 @@ env/
 
 # Runtime logs
 logs/
+
+# Client
+#
+#
+# Node js
+client/node_modules/
+client/.expo/
+client/dist/
+client/*.tsbuildinfo
+
+# environment
+client/.env.local
