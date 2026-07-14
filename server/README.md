@@ -24,13 +24,19 @@ Edit `.env` and fill in:
 
 ## Running the server
 
+For local development, run on port **8008** to avoid the recurring conflict on 8000 (Django/other FastAPI dev defaults, plus a voice server in a neighbouring project):
+
 ```bash
-uv run fastapi dev main.py
+uv run fastapi dev main.py --host 0.0.0.0 --port 8008
 ```
 
-- API: <http://127.0.0.1:8000>
-- Swagger UI: <http://127.0.0.1:8000/docs>
+Production keeps the standard port 8000 (see `.env.example`).
+
+- API: <http://127.0.0.1:8008>
+- Swagger UI: <http://127.0.0.1:8008/docs>
 - Logs are streamed to stdout and written to `logs/agro.log` (rotated daily, 14 days kept).
+
+`SERVER_URL` in `.env` must match the port you started the server on — `simulate.py` reads it via `settings.server_url` to know where to POST. The Expo client reads `EXPO_PUBLIC_API_URL` from `client/.env.local` (same rule: keep the port in sync).
 
 ## Simulators
 

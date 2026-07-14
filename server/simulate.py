@@ -14,7 +14,9 @@ from datetime import UTC, datetime
 
 import httpx
 
-SERVER_URL = "http://127.0.0.1:8000"
+from settings import settings
+
+SERVER_URL = settings.server_url
 NODES = ["greenhouse-1", "greenhouse-2", "greenhouse-3"]
 INTERVAL_SECONDS = 5
 
