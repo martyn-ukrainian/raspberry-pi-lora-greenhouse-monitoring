@@ -7,7 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
-import HomeScreen from "./screens/HomeScreen";
+import HomeStack from "./navigation/HomeStack";
 import AlertsScreen from "./screens/AlertsScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 
@@ -42,7 +42,7 @@ const AgroTheme = {
 const screens = [
   {
     name: "Home",
-    component: HomeScreen,
+    component: HomeStack,
     title: "Головна",
     icon: "home",
   },

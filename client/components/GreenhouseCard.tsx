@@ -1,15 +1,22 @@
-import { View, Text } from "react-native";
+import { View, Text, Pressable } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+
 import MiniChart from "./MiniChart";
 import { useAggregate } from "../hooks/useAggregate";
 import { useGreenhouses } from "../hooks/useGreenhouses";
 import { formatTime } from "../utils/dateformat";
+import type { HomeStackParamList } from "../types/navigation";
 
 type Props = {
   nodeId: string;
   bucketMinutes: number;
 }
 
+type NavProp = NativeStackNavigationProp<HomeStackParamList, "HomeList">;
+
 export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
+  const navigation = useNavigation<NavProp>();
   const { data: buckets } = useAggregate(nodeId, { bucketMinutes });
   const { data: greenhouses } = useGreenhouses();
 
@@ -24,7 +31,10 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
   const latest = buckets?.[buckets.length - 1];
 
   return (
-    <View className="bg-white p-4 rounded-lg mb-3">
+    <Pressable
+      onPress={() => navigation.navigate("GreenhouseDetail", { nodeId })}
+      className="bg-white p-4 rounded-lg mb-3 active:opacity-80"
+    >
       <View className="flex-row justify-between items-start">
         <Text className="text-brand text-lg font-semibold mb-2">
           {label}
@@ -53,6 +63,6 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
           </Text>
         </View>
       )}
-    </View>
+    </Pressable>
   )
 }
