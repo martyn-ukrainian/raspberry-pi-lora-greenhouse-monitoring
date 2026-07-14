@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { Measurement } from "../types";
+import type { Measurement, AggregateBucket } from "../types";
 
 export async function getMeasurements(): Promise<Measurement[]> {
   return apiClient<Measurement[]>("/measurements")
@@ -15,4 +15,16 @@ export async function createMeasurement(data: {
     method: "POST",
     body: JSON.stringify(data)
   })
+}
+
+export async function getAggregate(
+  nodeId: string,
+  bucketMinutes: number = 5,
+): Promise<AggregateBucket[]> {
+  const params = new URLSearchParams({
+    node_id: nodeId,
+    bucket_minutes: String(bucketMinutes),
+  });
+
+  return apiClient<AggregateBucket[]>(`/measurements/aggregate?${params}`)
 }

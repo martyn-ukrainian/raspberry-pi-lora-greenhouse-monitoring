@@ -7,11 +7,26 @@ export type Measurement = {
   timestamp: string;
 }
 
+export type SensorStats = {
+  min: number;
+  max: number;
+  avg: number;
+}
+
+export type AggregateBucket = {
+  bucket: string;
+  count: number;
+  air_temperature: SensorStats;
+  air_humidity: SensorStats;
+  soil_moisture: SensorStats;
+}
+
 
 type SensorRange = {
   min: number | null;
   max: number | null;
 }
+
 type GreenhouseThresholds = {
   air_temperature: SensorRange;
   air_humidity: SensorRange;
