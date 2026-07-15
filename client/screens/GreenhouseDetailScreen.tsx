@@ -17,6 +17,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import Chart from "../components/Chart";
 import StatsCard from "../components/StatsCard";
 import SwipeHint from "../components/SwipeHint";
+import PeriodSelector, { PERIODS, type Period } from "../components/PeriodSelector";
 import { useGreenhouses } from "../hooks/useGreenhouses";
 import { useAggregate } from "../hooks/useAggregate";
 import { summarizeBuckets } from "../utils/stats";
@@ -64,12 +65,13 @@ type MetricSceneProps = {
   metric: MetricKey;
   nodeId: string;
   since: Date;
+  bucketMinutes: number;
   config: Greenhouse | undefined;
 };
 
-function MetricScene({ metric, nodeId, since, config }: MetricSceneProps) {
+function MetricScene({ metric, nodeId, since, bucketMinutes, config }: MetricSceneProps) {
   const { data: buckets } = useAggregate(nodeId, {
-    bucketMinutes: 15,
+    bucketMinutes,
     since,
   });
 
@@ -112,9 +114,10 @@ function MetricScene({ metric, nodeId, since, config }: MetricSceneProps) {
 type GreenhousePageProps = {
   greenhouse: Greenhouse;
   since: Date;
+  bucketMinutes: number;
 };
 
-function GreenhousePage({ greenhouse, since }: GreenhousePageProps) {
+function GreenhousePage({ greenhouse, since, bucketMinutes }: GreenhousePageProps) {
   const [index, setIndex] = useState(0);
   const layout = useWindowDimensions();
 
@@ -125,13 +128,13 @@ function GreenhousePage({ greenhouse, since }: GreenhousePageProps) {
       metric={r.key}
       nodeId={greenhouse.node_id}
       since={since}
+      bucketMinutes={bucketMinutes}
       config={greenhouse}
     />
   );
 
   const renderTabBar = () => (
     <View className="px-2 pt-2">
-      <Text className="text-stone-500 text-sm mb-2">Останні 24 години</Text>
       <View className="flex-row bg-stone-100 p-1 rounded-lg gap-1">
         {ROUTES.map((r, i) => (
           <Pressable
@@ -173,6 +176,9 @@ export default function GreenhouseDetailScreen({
   navigation,
 }: Props) {
   const { nodeId } = route.params;
+  const [period, setPeriod] = useState<Period>("24h");
+  const periodMeta = PERIODS[period];
+  console.log("period", period, " meta: ", periodMeta)
   const pagerRef = useRef<PagerView>(null);
   const { data: greenhouses } = useGreenhouses();
 
@@ -189,8 +195,8 @@ export default function GreenhouseDetailScreen({
   }, [greenhouses]);
 
   const since = useMemo(
-    () => new Date(Date.now() - 24 * 60 * 60 * 1000),
-    [],
+    () => new Date(Date.now() - periodMeta.hours * 60 * 60 * 1000),
+    [periodMeta.hours],
   );
 
   const goToSettings = useCallback(() => {
@@ -246,6 +252,11 @@ export default function GreenhouseDetailScreen({
 
   return (
     <SafeAreaView edges={[]} className="flex-1 bg-stone-100">
+      <View className="px-2 pt-2">
+        <PeriodSelector value={period} onChange={setPeriod} />
+        <Text className="text-stone-500 text-sm mt-2 mb-1">{periodMeta.description}</Text>
+      </View>
+
       <PagerView
         ref={pagerRef}
         orientation="vertical"
@@ -256,7 +267,7 @@ export default function GreenhouseDetailScreen({
       >
         {extended.map((g, i) => (
           <View key={`${g.node_id}-${i}`}>
-            <GreenhousePage greenhouse={g} since={since} />
+            <GreenhousePage greenhouse={g} since={since} bucketMinutes={periodMeta.bucketMinutes}/>
           </View>
         ))}
       </PagerView>
