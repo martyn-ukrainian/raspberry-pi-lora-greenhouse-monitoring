@@ -42,3 +42,6 @@ client/*.tsbuildinfo
 
 # environment
 client/.env.local
+
+# scripts
+scripts/pi.env
