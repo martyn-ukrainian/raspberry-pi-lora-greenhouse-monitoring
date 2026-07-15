@@ -41,5 +41,14 @@ export type Greenhouse = {
 
 
 export type Alert = {
-
+  id: number;
+  node_id: string;
+  label: string;
+  sensor: "air_temperature" | "air_humidity" | "soil_moisture";
+  kind: "high" | "low";
+  value: number;
+  boundary: number;
+  duration_minutes: number;
+  created_at: string;
+  acknowledged: boolean;
 }

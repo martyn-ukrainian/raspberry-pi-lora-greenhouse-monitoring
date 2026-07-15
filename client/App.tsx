@@ -10,8 +10,8 @@ import { Ionicons } from "@expo/vector-icons";
 import HomeStack from "./navigation/HomeStack";
 import AlertsScreen from "./screens/AlertsScreen";
 import SettingsScreen from "./screens/SettingsScreen";
-
 import { usePrefetchGreenhouses } from "./hooks/useGreenhouses";
+import { useAlerts } from "./hooks/useAlerts";
 
 
 const Tab = createBottomTabNavigator();
@@ -62,6 +62,8 @@ const screens = [
 
 function AppContent() {
   usePrefetchGreenhouses();
+  const { data: alerts } = useAlerts();
+  const unread = (alerts ?? []).filter((a) => !a.acknowledged).length;
 
   return (
      <SafeAreaProvider>
@@ -85,8 +87,8 @@ function AppContent() {
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name={item.icon} color={color} size={size} />
                 ),
-                ...(item.name === "Alerts" && {
-                  tabBarBadge: item.name === "Alerts" ? 3 : undefined,
+                ...(item.name === "Alerts" && unread > 0 && {
+                  tabBarBadge: unread,
                   tabBarBadgeStyle: { backgroundColor: "#ef4444" },
                 })
               }}
