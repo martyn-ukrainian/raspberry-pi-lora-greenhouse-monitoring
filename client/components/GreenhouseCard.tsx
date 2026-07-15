@@ -1,5 +1,6 @@
 import { View, Text, Pressable } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import MiniChart from "./MiniChart";
@@ -36,7 +37,7 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
       className="bg-white p-4 rounded-lg mb-3 active:opacity-80"
     >
       <View className="flex-row justify-between items-start">
-        <Text className="text-brand text-lg font-semibold mb-2">
+        <Text className="text-stone-800 text-lg font-semibold mb-2">
           {label}
         </Text>
         {latest && (
@@ -44,25 +45,35 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
         )}
       </View>
 
+      {latest && (
+        <View className="flex-row mb-3 gap-4">
+          <View className="flex-row items-center">
+            <Ionicons name="thermometer" size={16} color="#586E5A" />
+            <Text className="ml-1 text-stone-900 font-medium">
+              {latest.air_temperature.avg.toFixed(1)}°
+            </Text>
+          </View>
+          <View className="flex-row items-center">
+            <Ionicons name="water" size={16} color="#3b82f6" />
+            <Text className="ml-1 text-stone-900 font-medium">
+              {latest.air_humidity.avg.toFixed(0)}%
+            </Text>
+          </View>
+          <View className="flex-row items-center">
+            <Ionicons name="leaf" size={16} color="#a16207" />
+            <Text className="ml-1 text-stone-900 font-medium">
+              {latest.soil_moisture.avg.toFixed(0)}%
+            </Text>
+          </View>
+        </View>
+      )}
+
       <MiniChart
         data={chartData}
         min={config?.thresholds.air_temperature.min}
         max={config?.thresholds.air_temperature.max}
       />
 
-      {latest && (
-        <View className="flex-row mt-3">
-          <Text className="text-stone-900 mr-4">
-            T: {latest.air_temperature.avg.toFixed(1)}°C
-          </Text>
-          <Text className="text-stone-900 mr-4">
-            H: {latest.air_humidity.avg.toFixed(0)}%
-          </Text>
-          <Text className="text-stone-900">
-            M: {latest.soil_moisture.avg.toFixed(0)}%
-          </Text>
-        </View>
-      )}
     </Pressable>
   )
 }
