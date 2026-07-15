@@ -8,6 +8,7 @@ import { useAggregate } from "../hooks/useAggregate";
 import { useGreenhouses } from "../hooks/useGreenhouses";
 import { formatTime } from "../utils/dateformat";
 import type { HomeStackParamList } from "../types/navigation";
+import { SENSORS, SENSOR_KEYS } from "../config/sensors";
 
 type Props = {
   nodeId: string;
@@ -47,24 +48,19 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
 
       {latest && (
         <View className="flex-row mb-3 gap-4">
-          <View className="flex-row items-center">
-            <Ionicons name="thermometer" size={16} color="#586E5A" />
-            <Text className="ml-1 text-stone-900 font-medium">
-              {latest.air_temperature.avg.toFixed(1)}°
-            </Text>
-          </View>
-          <View className="flex-row items-center">
-            <Ionicons name="water" size={16} color="#3b82f6" />
-            <Text className="ml-1 text-stone-900 font-medium">
-              {latest.air_humidity.avg.toFixed(0)}%
-            </Text>
-          </View>
-          <View className="flex-row items-center">
-            <Ionicons name="leaf" size={16} color="#a16207" />
-            <Text className="ml-1 text-stone-900 font-medium">
-              {latest.soil_moisture.avg.toFixed(0)}%
-            </Text>
-          </View>
+          {SENSOR_KEYS.map((key) => {
+            const meta = SENSORS[key];
+            const value = latest[key].avg;
+            const isPercent = meta.unit === "%";
+            return (
+              <View className="flex-row items-center">
+                <Ionicons name={meta.icon} size={16} color={meta.color} />
+                <Text className="ml-1 text-stone-900 font-medium">
+                  {value.toFixed(isPercent ? 0 : 1)}{meta.unit}°
+                </Text>
+              </View>
+            )
+          })}
         </View>
       )}
 

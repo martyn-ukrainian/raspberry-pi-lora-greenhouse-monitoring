@@ -24,45 +24,19 @@ import { summarizeBuckets } from "../utils/stats";
 import type { Greenhouse } from "../types";
 import type { HomeStackParamList } from "../types/navigation";
 
+import { SENSORS, SENSOR_KEYS, type SensorKey } from "../config/sensors";
+
 type Props = NativeStackScreenProps<HomeStackParamList, "GreenhouseDetail">;
 
-type MetricKey = "air_temperature" | "air_humidity" | "soil_moisture";
+type Route = { key: SensorKey; title: string };
 
-const METRICS: Record<
-  MetricKey,
-  { label: string; title: string; unit: string; color: string }
-> = {
-  air_temperature: {
-    label: "Повітря",
-    title: "Температура повітря",
-    unit: "°",
-    color: "#586E5A",
-  },
-  air_humidity: {
-    label: "Волога",
-    title: "Вологість повітря",
-    unit: "%",
-    color: "#3b82f6",
-  },
-  soil_moisture: {
-    label: "Ґрунт",
-    title: "Вологість ґрунту",
-    unit: "%",
-    color: "#a16207",
-  },
-};
-
-const METRIC_KEYS = Object.keys(METRICS) as MetricKey[];
-
-type Route = { key: MetricKey; title: string };
-
-const ROUTES: Route[] = METRIC_KEYS.map((k) => ({
+const ROUTES: Route[] = SENSOR_KEYS.map((k) => ({
   key: k,
-  title: METRICS[k].label,
+  title: SENSORS[k].shortLabel,
 }));
 
 type MetricSceneProps = {
-  metric: MetricKey;
+  metric: SensorKey;
   nodeId: string;
   since: Date;
   bucketMinutes: number;
@@ -75,7 +49,7 @@ function MetricScene({ metric, nodeId, since, bucketMinutes, config }: MetricSce
     since,
   });
 
-  const meta = METRICS[metric];
+  const meta = SENSORS[metric];
   const thresholds = config?.thresholds[metric];
 
   const chartData = (buckets ?? []).map((b) => ({
@@ -99,7 +73,7 @@ function MetricScene({ metric, nodeId, since, bucketMinutes, config }: MetricSce
 
       {stats && (
         <StatsCard
-          title={meta.title}
+          title={meta.fullLabel}
           min={stats.min}
           max={stats.max}
           avg={stats.avg}
@@ -178,7 +152,6 @@ export default function GreenhouseDetailScreen({
   const { nodeId } = route.params;
   const [period, setPeriod] = useState<Period>("24h");
   const periodMeta = PERIODS[period];
-  console.log("period", period, " meta: ", periodMeta)
   const pagerRef = useRef<PagerView>(null);
   const { data: greenhouses } = useGreenhouses();
 
