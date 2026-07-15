@@ -7,13 +7,15 @@
 
 # stdlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Protocol
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Protocol
 
-# third-party
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlmodel import Field, Session, SQLModel, col, select
 
 # local
+from database import engine
 from logger import get_logger
 from thresholds import SensorThresholds, thresholds
 
@@ -158,3 +160,76 @@ def check(measurement: SensorReading) -> list[Alert]:
         if alert is not None:
             alerts.append(alert)
     return alerts
+
+
+class StoredAlert(SQLModel, table=True):  # type: ignore[call-arg]
+    id: int | None = Field(default=None, primary_key=True)
+    node_id: str
+    label: str
+    sensor: str
+    kind: str
+    value: float
+    boundary: float
+    duration_minutes: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    acknowledged: bool = Field(default=False)
+
+
+class AlertRepository:
+    def __init__(self, engine):
+        self.engine = engine
+
+    def create(self, alert: Alert) -> StoredAlert:
+        with Session(self.engine) as session:
+            stored = StoredAlert(**alert.model_dump())
+            session.add(stored)
+            session.commit()
+            session.refresh(stored)
+        return stored
+
+    def list_recent(self, limit: int = 50) -> list[StoredAlert]:
+        with Session(self.engine) as session:
+            stmt = (
+                select(StoredAlert)
+                .order_by(col(StoredAlert.created_at).desc())
+                .limit(limit)
+            )
+
+            return list(session.exec(stmt).all())
+
+    def ack_all(self) -> int:
+        """Позначити всі непрочитані як прочитані. Повертає скільки оновлено."""
+        with Session(self.engine) as session:
+            stmt = select(StoredAlert).where(col(StoredAlert.acknowledged).is_(False))
+            alerts = session.exec(stmt).all()
+            for a in alerts:
+                a.acknowledged = True
+            session.commit()
+            return len(alerts)
+
+
+def get_repository() -> AlertRepository:
+    return AlertRepository(engine)
+
+
+AlertRepositoryDep = Annotated[AlertRepository, Depends(get_repository)]
+
+router = APIRouter(prefix="/alerts", tags=["alerts"])
+
+
+@router.get("")
+def read_alerts(
+    repo: AlertRepositoryDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[StoredAlert]:
+    alerts = repo.list_recent(limit)
+    logger.info("Returned %d alerts (limit=%d)", len(alerts), limit)
+
+    return alerts
+
+
+@router.post("/ack-all")
+def ack_all_alerts(repo: AlertRepositoryDep) -> dict[str, int]:
+    count = repo.ack_all()
+    logger.info("Acknowledged %d alerts", count)
+    return {"acknowledged": count}

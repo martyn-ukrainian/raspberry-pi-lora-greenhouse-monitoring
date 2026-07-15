@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import Integer
 from sqlmodel import Field, Session, SQLModel, func, select
 
-from alerts import check
+from alerts import AlertRepositoryDep, check
 from database import engine
 from logger import get_logger
 from notifiers import get_notifier
@@ -15,7 +15,7 @@ from notifiers.base import Notifier
 logger = get_logger(__name__)
 
 
-class Measurement(SQLModel, table=True):
+class Measurement(SQLModel, table=True):  # type: ignore[call-arg]
     id: int | None = Field(default=None, primary_key=True)
     node_id: str
     air_temperature: float
@@ -100,7 +100,10 @@ NotifierDep = Annotated[Notifier, Depends(get_notifier)]
 
 @router.post("")
 def create_measurement(
-    measurement: Measurement, repo: RepositoryDep, notifier: NotifierDep
+    measurement: Measurement,
+    repo: RepositoryDep,
+    notifier: NotifierDep,
+    alert_repo: AlertRepositoryDep,
 ) -> Measurement:
     logger.info("Received measurement from node %s", measurement.node_id)
     saved = repo.create(measurement)
@@ -108,6 +111,8 @@ def create_measurement(
 
     for alert in check(saved):
         notifier.send(alert)
+        alert_repo.create(alert)
+        logger.info("Sotored alert: %s %s %s", alert.node_id, alert.sensor, alert.kind)
 
     return saved
 
