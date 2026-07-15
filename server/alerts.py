@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlmodel import Field, Session, SQLModel, col, select
 
 # local
@@ -173,6 +173,14 @@ class StoredAlert(SQLModel, table=True):  # type: ignore[call-arg]
     duration_minutes: int
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     acknowledged: bool = Field(default=False)
+
+    # SQLite drops tzinfo on write. Force UTC on the wire so the client can
+    # trust the timezone contract and just localize for display.
+    @field_serializer("created_at")
+    def _serialize_created_at(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=UTC)
+        return v.isoformat()
 
 
 class AlertRepository:

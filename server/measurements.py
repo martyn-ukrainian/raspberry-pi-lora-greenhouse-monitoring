@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlalchemy import Integer
 from sqlmodel import Field, Session, SQLModel, func, select
 
@@ -23,6 +23,12 @@ class Measurement(SQLModel, table=True):  # type: ignore[call-arg]
     soil_moisture: float
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
+    @field_serializer("timestamp")
+    def _serialize_timestamp(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=UTC)
+        return v.isoformat()
+
 
 class SensorStats(BaseModel):
     min: float
@@ -36,6 +42,12 @@ class AggregateBucket(BaseModel):
     air_temperature: SensorStats
     air_humidity: SensorStats
     soil_moisture: SensorStats
+
+    @field_serializer("bucket")
+    def _serialize_bucket(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=UTC)
+        return v.isoformat()
 
 
 class MeasurementRepository:
