@@ -53,10 +53,10 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
             const value = latest[key].avg;
             const isPercent = meta.unit === "%";
             return (
-              <View className="flex-row items-center">
+              <View key={key} className="flex-row items-center">
                 <Ionicons name={meta.icon} size={16} color={meta.color} />
                 <Text className="ml-1 text-stone-900 font-medium">
-                  {value.toFixed(isPercent ? 0 : 1)}{meta.unit}°
+                  {value.toFixed(isPercent ? 0 : 1)}{meta.unit}
                 </Text>
               </View>
             )
