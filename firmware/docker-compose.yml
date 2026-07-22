@@ -1,0 +1,21 @@
+services:
+  greenhouse-node:
+    build: .
+    image: agro-firmware
+    volumes:
+      - ./greenhouse-node:/project
+    entrypoint: ["pio"]
+
+  gateway:
+    build: .
+    image: agro-firmware
+    volumes:
+      - ./gateway:/project
+    entrypoint: ["pio"]
+
+  node_sensor:
+    build: .
+    image: agro-firmware
+    volumes:
+      - ./node_sensor:/project
+    entrypoint: ["pio"]
