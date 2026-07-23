@@ -2,7 +2,7 @@ PROJECT ?= greenhouse-node
 BOARD ?= heltec_wifi_lora_32_V3
 HOST_PYTHON ?= $(shell command -v python3.11 2>/dev/null || command -v python3)
 
-.PHONY: setup-host _ensure-host-pio init build upload monitor shell clean
+.PHONY: setup-host _ensure-host-pio init build upload deploy monitor shell clean
 
 # Локальний pio (для upload/monitor — потребують USB, Docker на macOS туди не дотягується).
 # Ставимо саме під Python 3.11: на 3.13+/3.14 pip не завжди має готові wheel-и
@@ -25,6 +25,9 @@ build:
 
 upload: _ensure-host-pio
 	pio run -d $(PROJECT) -t upload
+
+# build (в Docker) + upload (з хоста) одним викликом.
+deploy: build upload
 
 monitor: _ensure-host-pio
 	pio device monitor -d $(PROJECT)

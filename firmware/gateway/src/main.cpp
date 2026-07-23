@@ -1,0 +1,152 @@
+#include <Arduino.h>
+#include <RadioLib.h>
+#include <SSD1306Wire.h>
+
+// Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262)
+#define MAX_NODES 3
+
+#define LORA_NSS   8
+#define LORA_SCK   9
+#define LORA_MOSI  10
+#define LORA_MISO  11
+#define LORA_RST   12
+#define LORA_BUSY  13
+#define LORA_DIO1  14
+
+#define OLED_SDA   17
+#define OLED_SCL   18
+#define OLED_RST   21
+#define VEXT_CTRL  36
+
+SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
+SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
+void powerOnVext() {
+  pinMode(VEXT_CTRL, OUTPUT);
+  digitalWrite(VEXT_CTRL, LOW);
+  delay(100);
+}
+
+void resetDisplay() {
+  pinMode(OLED_RST, OUTPUT);
+  digitalWrite(OLED_RST, LOW);
+  delay(100);
+  digitalWrite(OLED_RST, HIGH);
+}
+
+void showStatus(const String &line1, const String &line2) {
+  display.clear();
+  display.drawString(0, 0, line1);
+  display.drawString(0, 10, line2);
+  display.display();
+}
+
+void initDisplay() {
+  powerOnVext();
+  resetDisplay();
+  display.init();
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+}
+
+// Блокуючий radio.receive() рахує свій timeout ще до того, як знає довжину
+// пакету — для коротких повідомлень встигає, для довших (наш JSON) вже ні,
+// приймання перерветься серед пакету. Неблокуючий режим (startReceive +
+// переривання) цієї проблеми не має — просто чекає RxDone скільки треба.
+volatile bool receivedFlag = false;
+
+#if defined(ESP8266) || defined(ESP32)
+ICACHE_RAM_ATTR
+#endif
+void onReceive() {
+  receivedFlag = true;
+}
+
+int nodeIds[MAX_NODES] = {0, 1, 2};
+unsigned long lastSeen[MAX_NODES] = {0, 0, 0};
+
+int parseNodeId(const String &json) {
+  int idx = json.indexOf("\"node_id\":");
+  if (idx == -1) return -1;  // не знайшли — щось не так з форматом
+
+  int start = idx + strlen("\"node_id\":");
+  return json.substring(start).toInt();
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  initDisplay();
+  showStatus("Loading...", "");
+
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+  int state = radio.begin(868.0);
+
+  if (state == RADIOLIB_ERR_NONE) {
+    Serial.println("LoRa init OK (868 MHz)");
+    showStatus("LoRa: OK", "868 MHz");
+  } else {
+    Serial.printf("LoRa init failed, code %d\n", state);
+    showStatus("LoRa: FAIL", "code " + String(state));
+  }
+
+  display.drawString(0, 40, "Hello");
+  display.display();
+
+  radio.setPacketReceivedAction(onReceive);
+  radio.startReceive();
+}
+
+void reportReceived(const String &received) {
+  String withSignal = received.substring(0, received.length() - 1)
+    + ",\"rssi\":" + String((int)radio.getRSSI())
+    + ",\"snr\":" + String(radio.getSNR(), 1)
+    + "}";
+  Serial.println(withSignal);
+}
+
+String getSecAgo(unsigned long seenAtMillis) {
+  unsigned long secAgo = (millis() - seenAtMillis) / 1000;
+  return String(secAgo) + "s ago";
+}
+
+void showLastSeen() {
+  display.clear();
+  display.drawString(0, 0, "Greenhouse Monitor");
+  for (int i = 0; i < MAX_NODES; i++) {
+    String line = "gh" + String(nodeIds[i]) + ": ";
+    line += (lastSeen[i] == 0) ? "---" : getSecAgo(lastSeen[i]);
+    display.drawString(0, 14 + i * 12, line);
+  }
+  display.display();
+}
+
+void updateLastSeen(const String &received) {
+  int nodeId = parseNodeId(received);
+  for (int i = 0; i < MAX_NODES; i++) {
+    if (nodeId == nodeIds[i]) {
+      lastSeen[i] = millis();
+      break;
+    }
+  }
+}
+
+void loop() {
+  if (receivedFlag) {
+    receivedFlag = false;
+
+    String received;
+    int state = radio.readData(received);
+
+    if (state == RADIOLIB_ERR_NONE) {
+      reportReceived(received);
+      updateLastSeen(received);
+    } else if (state != RADIOLIB_ERR_CRC_MISMATCH) {
+      Serial.printf("Receive failed, code %d\n", state);
+    }
+
+    radio.startReceive();
+  }
+
+  showLastSeen();
+  delay(1000);
+}

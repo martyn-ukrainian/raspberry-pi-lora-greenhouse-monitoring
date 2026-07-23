@@ -62,6 +62,7 @@ docker run --rm -v "$(pwd)/greenhouse-node:/project" agro-firmware run
 make init      # pio project init --board ... (один раз на проєкт)
 make build     # збірка через контейнер (docker compose run)
 make upload    # заливка на плату — з хоста, бо USB
+make deploy    # build + upload одним викликом
 make monitor   # серійна консоль — з хоста
 make shell     # зайти всередину контейнера
 make clean     # очистити збірку
@@ -90,3 +91,41 @@ PlatformIO board ID: `heltec_wifi_lora_32_V3`.
 - X: 0–127, Y: 0–63
 - Шрифт: `ArialMT_Plain_10`, ~10-12px/рядок, тільки латиниця (кирилицю не малює)
 - Останній рядок без обрізання знизу: `y=52`
+
+## Пінаут (Heltec WiFi LoRa 32 V3)
+
+Зведено з `schema.png` (фото пінаута плати) + пінаут з `main.cpp`.
+
+**LoRa (SX1262, SPI):**
+| Пін | GPIO |
+|---|---|
+| NSS (CS) | 8 |
+| SCK | 9 |
+| MOSI | 10 |
+| MISO | 11 |
+| RST | 12 |
+| BUSY | 13 |
+| DIO1 | 14 |
+
+**OLED (I2C) + живлення периферії:**
+| Пін | GPIO |
+|---|---|
+| SDA | 17 |
+| SCL | 18 |
+| OLED_RST | 21 |
+| Vext_Ctrl | 36 (LOW = увімкнено) |
+
+**Кнопки:** PRG/BOOT — GPIO0, RESET — окрема апаратна кнопка (не GPIO).
+
+**Вільні ADC1-піни під сенсори** (ADC1, не ADC2 — ADC2 конфліктує з Wi-Fi/LoRa):
+| Header J3 pin | GPIO | ADC channel |
+|---|---|---|
+| 12 | GPIO1 | ADC1_CH0 |
+| 13 | GPIO2 | ADC1_CH1 |
+| 14 | GPIO3 | ADC1_CH2 |
+| 15 | GPIO4 | ADC1_CH3 |
+| 16 | GPIO5 | ADC1_CH4 |
+| 17 | GPIO6 | ADC1_CH5 |
+| 18 | GPIO7 | ADC1_CH6 |
+
+Датчики вологості ґрунту (ємнісні, v1.2) зараз підключені на **GPIO2/3/4** (Header J3, піни 13/14/15).
