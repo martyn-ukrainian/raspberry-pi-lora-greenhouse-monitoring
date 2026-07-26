@@ -14,43 +14,15 @@ defaults:
 #   3. Виправити пороги під культуру й фізичні умови цієї теплиці.
 greenhouses:
   greenhouse-1:
-    label: "Розсадна (огірки)"
-    air_temperature:
-      min: 24.0
-      max: 28.0
-      dwell_minutes: 3 # температура стрибає швидко, коротша витримка
-    air_humidity:
-      min: 75.0
-      max: 90.0
-      dwell_minutes: 10
-    soil_moisture:
-      min: 30.0
-      dwell_minutes: 20 # ґрунт інерційний, довша витримка
-
-  greenhouse-2:
-    label: "Огірки основна"
-    air_temperature:
-      min: 24.0
-      max: 28.0
-      dwell_minutes: 3
-    air_humidity:
-      min: 75.0
-      max: 90.0
-      dwell_minutes: 10
-    soil_moisture:
-      min: 30.0
-      dwell_minutes: 20
-
-  greenhouse-3:
-    label: "Помідори"
+    label: "Помідори 2 пльонки"
     air_temperature:
       min: 20.0
-      max: 30.0
-      dwell_minutes: 3
+      max: 40.0
+      dwell_minutes: 3 # температура стрибає швидко, коротша витримка
     air_humidity:
       min: 60.0
       max: 70.0 # вище — ризик фітофтори
       dwell_minutes: 10
     soil_moisture:
       min: 25.0
-      dwell_minutes: 20
+      dwell_minutes: 20 # ґрунт інерційний, довша витримка
