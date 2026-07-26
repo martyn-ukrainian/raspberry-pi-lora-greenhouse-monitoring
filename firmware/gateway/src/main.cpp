@@ -117,28 +117,54 @@ String getSecAgo(unsigned long seenAtMillis) {
 
 // Груба класифікація "наскільки хороший" зв'язок — орієнтовно під LoRa
 // 868 МГц (SX1262). Від'ємний SNR тут — нормальне явище, не проблема.
-char signalTier(int rssi, float snr) {
-  if (rssi > -90 && snr > 0) return 'S';    // strong
-  if (rssi > -110 && snr > -10) return 'M'; // medium
-  return 'W';                               // weak
+// Повертає 1-3 (скільки риски закрасити з трьох).
+int signalTier(int rssi, float snr) {
+  if (rssi > -90 && snr > 0) return 3;    // strong
+  if (rssi > -110 && snr > -10) return 2; // medium
+  return 1;                               // weak
+}
+
+// Три риски зростаючої висоти (як індикатор сигналу на телефоні), вирівняні
+// по нижньому краю. tier=0 — всі риски лише контуром (сигналу нема).
+void drawSignalBars(int x, int y, int tier) {
+  const int barWidth = 3;
+  const int gap = 2;
+  const int heights[3] = {3, 6, 9};
+
+  for (int i = 0; i < 3; i++) {
+    int barX = x + i * (barWidth + gap);
+    int barY = y + (heights[2] - heights[i]);
+
+    if (i < tier) {
+      display.setColor(WHITE);
+      display.fillRect(barX, barY, barWidth, heights[i]);
+    } else {
+      display.setColor(WHITE);
+      display.drawRect(barX, barY, barWidth, heights[i]);
+    }
+  }
 }
 
 void showLastSeen() {
   display.clear();
+  display.setColor(WHITE);
   display.drawString(0, 0, "Greenhouse Monitor");
 
   for (int i = 0; i < MAX_NODES; i++) {
     String line = "gh" + String(nodeIds[i]) + ": ";
+    int y = 14 + i * 12;
 
     if (lastSeen[i] == 0) {
       line += "---";
+      display.drawString(0, y, line);
     } else if (millis() - lastSeen[i] < CONNECTION_TIMEOUT_MS) {
-      line += String(lastRssi[i]) + "dBm " + String(signalTier(lastRssi[i], lastSnr[i]));
+      line += String(lastRssi[i]) + "dBm";
+      display.drawString(0, y, line);
+      drawSignalBars(100, y + 1, signalTier(lastRssi[i], lastSnr[i]));
     } else {
       line += getSecAgo(lastSeen[i]);
+      display.drawString(0, y, line);
     }
-
-    display.drawString(0, 14 + i * 12, line);
   }
 
   display.display();
