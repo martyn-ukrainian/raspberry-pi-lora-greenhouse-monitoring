@@ -70,6 +70,16 @@ make clean     # очистити збірку
 
 Приклад для іншого проєкту: `make init PROJECT=gateway BOARD=<board-id>`.
 
+**Порт плати** (`SERIAL_PORT`) не хардкодиться в `platformio.ini` (`upload_port`/`monitor_port` там читають
+`${sysenv.SERIAL_PORT}`) — macOS перенумеровує `/dev/cu.usbserial-N` по-різному щоразу, тож значення
+задається через змінну середовища, з дефолтом у `Makefile`:
+
+```
+make upload PROJECT=gateway SERIAL_PORT=/dev/cu.usbserial-5
+```
+
+Якщо кілька плат підключені одночасно — перевір справжній порт кожної через `ls /dev/cu.*`.
+
 ## Заливка прошивки на плату
 
 З хоста, локально встановленим `pio`:
@@ -94,9 +104,53 @@ PlatformIO board ID: `heltec_wifi_lora_32_V3`.
 
 ## Пінаут (Heltec WiFi LoRa 32 V3)
 
-Зведено з `schema.png` (фото пінаута плати) + пінаут з `main.cpp`.
+Зведено з `schema.png` (фото пінаута плати) + пінаут з `main.cpp`. Плата має два роз'єми — J3 (лівий) і J2 (правий).
 
-**LoRa (SX1262, SPI):**
+**Header J3 (лівий):**
+| Pin | GPIO | Додатково |
+|---|---|---|
+| 18 | GPIO7 | ADC1_CH6 |
+| 17 | GPIO6 | ADC1_CH5 |
+| 16 | GPIO5 | ADC1_CH4 |
+| 15 | GPIO4 | ADC1_CH3 |
+| 14 | GPIO3 | ADC1_CH2 |
+| 13 | GPIO2 | ADC1_CH1 |
+| 12 | GPIO1 | ADC1_CH0, VBAT_Read |
+| 11 | GPIO38 | SUBSPIWP, FSPIWP |
+| 10 | GPIO39 | MTCK |
+| 9 | GPIO40 | MTDO — використано як **SCL** (2-га I2C, повітряний сенсор) |
+| 8 | GPIO41 | використано як **SDA** (2-га I2C, повітряний сенсор) |
+| 7 | GPIO42 | |
+| 6 | GPIO45 | |
+| 5 | GPIO46 | |
+| 4 | GPIO37 | ADC_Ctrl↑, SUBSPIQ, FSPIQ, SPIDQS |
+| 3 | 3V3 | |
+| 2 | 3V3 | VIN (для 2-ї I2C) |
+| 1 | GND | GND (для 2-ї I2C) |
+
+**Header J2 (правий):**
+| Pin | GPIO | Додатково |
+|---|---|---|
+| 18 | GPIO19 | U1RST, ADC2_CH9 |
+| 17 | GPIO20 | U1CTS, ADC2_CH9 |
+| 16 | GPIO21 | **OLED_RST** |
+| 15 | GPIO26 | SPICS1 |
+| 14 | GPIO48 | |
+| 13 | GPIO47 | |
+| 12 | GPIO33 | SPIIO4, FSPIHD, SUBSPIHD |
+| 11 | GPIO34 | SPIIO5, FSPICS0, SUBSPICS0 |
+| 10 | GPIO35 | SPIIO6, FSPID, SUBSPID, LED_Write↑ |
+| 9 | GPIO36 | SPIIO7, FSPICLK, SUBSPICLK, **Vext_Ctrl**↑ |
+| 8 | GPIO0 | USER_SW↑ (кнопка PRG/BOOT) |
+| 7 | — | RST_SW↑ (кнопка RESET, не GPIO) |
+| 6 | GPIO43 | U0TXD, CP2102_RX |
+| 5 | GPIO44 | U0RXD, CP2102_TX |
+| 4 | Ve | |
+| 3 | Ve | |
+| 2 | 5V | |
+| 1 | GND | |
+
+**LoRa (SX1262, SPI)** — не на цих роз'ємах, окремі внутрішні піни:
 | Пін | GPIO |
 |---|---|
 | NSS (CS) | 8 |
@@ -107,18 +161,41 @@ PlatformIO board ID: `heltec_wifi_lora_32_V3`.
 | BUSY | 13 |
 | DIO1 | 14 |
 
-**OLED (I2C) + живлення периферії:**
+**OLED (I2C, `Wire`) + живлення периферії:**
 | Пін | GPIO |
 |---|---|
 | SDA | 17 |
 | SCL | 18 |
-| OLED_RST | 21 |
-| Vext_Ctrl | 36 (LOW = увімкнено) |
+| OLED_RST | 21 (= J2 pin 16) |
+| Vext_Ctrl | 36 (= J2 pin 9, LOW = увімкнено) |
 
-**Кнопки:** PRG/BOOT — GPIO0, RESET — окрема апаратна кнопка (не GPIO).
+**Друга I2C-шина (повітряний сенсор SHT31) — окрема від OLED, потребує `Wire1`. Схема підключення, Header J3:**
 
-**Вільні ADC1-піни під сенсори** (ADC1, не ADC2 — ADC2 конфліктує з Wi-Fi/LoRa):
-| Header J3 pin | GPIO | ADC channel |
+
+
+```
+Pin #:    1     2     3     4      5      6      7      8      9      10     11     12
+GPIO2:   GND   3V3   3V3  GPIO37 GPIO46 GPIO45 GPIO42 GPIO41 GPIO40 GPIO39 GPIO38 GPIO1
+          |     |                                |      |
+       ---+-----+--------------------------------+------+---------------------------------------
+         GND   VIN                              SCL    SDA
+       (SHT31)(SHT31)                         (SHT31) (SHT31)
+```
+
+```
+Pin #:    1     2     3     4      5      6      7      8      9      10     11     12
+GPIO2:   GND   3V3   3V3  GPIO37 GPIO46 GPIO45 GPIO42 GPIO41 GPIO40 GPIO39 GPIO38 GPIO1
+          |     |                                |      |
+       ---+-----+--------------------------------+------+---------------------------------------
+         GND   VIN                              SCL    SDA
+       (SHT31)(SHT31)                         (SHT31) (SHT31)
+```
+
+Тобто фізично на плату SHT31: **GND → pin 1, VIN → pin 2, SCL → pin 7 (GPIO42), SDA → pin 8 (GPIO41)**.
+Піни 3-6 і 9-12 в цій схемі не використовуються.
+
+**Вільні ADC1-піни під сенсори** (ADC1, не ADC2 — ADC2 конфліктує з Wi-Fi/LoRa), Header J3:
+| Pin | GPIO | ADC channel |
 |---|---|---|
 | 12 | GPIO1 | ADC1_CH0 |
 | 13 | GPIO2 | ADC1_CH1 |
@@ -129,3 +206,9 @@ PlatformIO board ID: `heltec_wifi_lora_32_V3`.
 | 18 | GPIO7 | ADC1_CH6 |
 
 Датчики вологості ґрунту (ємнісні, v1.2) зараз підключені на **GPIO2/3/4** (Header J3, піни 13/14/15).
+
+VIN = фіолетовий
+GIN = сірий
+
+SCL = білий - 7 (GPIO42)
+SDA = чорний - 8 (GPIO41)

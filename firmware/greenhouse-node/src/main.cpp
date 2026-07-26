@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <SSD1306Wire.h>
+#include <Adafruit_SHT31.h>
 
 // Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262)
 #define NODE_ID    0
@@ -26,8 +27,14 @@
 #define SOIL_2     3
 #define SOIL_3     4
 
+#define AIR_SDA    41
+#define AIR_SCL    42
+
 SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
 SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
+
+TwoWire airWire = TwoWire(1);
+Adafruit_SHT31 sht31 = Adafruit_SHT31(&airWire);
 
 void powerOnVext() {
   pinMode(VEXT_CTRL, OUTPUT);
@@ -60,9 +67,16 @@ void showStatus(const String &line1, const String &line2) {
 
 void setup() {
   Serial.begin(115200);
-
   initDisplay();
   showStatus("Loading...", "");
+
+  pinMode(AIR_SDA, INPUT_PULLUP);
+  pinMode(AIR_SCL, INPUT_PULLUP);
+  airWire.begin(AIR_SDA, AIR_SCL);
+
+  if (!sht31.begin(0x44)) {
+    Serial.println("SHT31 not found");
+  }
 
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
   int state = radio.begin(868.0);
@@ -103,9 +117,6 @@ int medianOf3(int a, int b, int c) {
   return b;
 }
 
-// Поки нема SHT31 — фіксовані значення (буде замінено на реальні виміри).
-#define AIR_TEMPERATURE 0
-#define AIR_HUMIDITY    0
 
 int soilRawToPercent(int humSoil) {
   // Грубе перетворення сирого ADC у % — без реального калібрування (буде пізніше).
@@ -114,17 +125,17 @@ int soilRawToPercent(int humSoil) {
   return constrain(soilPercent, 0, 100);
 }
 
-String buildTelemetry(int soilPercent) {
+String buildTelemetry(int soilPercent, float airTemp, float airHum) {
   return "{\"type\":\"measurement\",\"node_id\":" + String(NODE_ID) + ","
-           "\"air_temperature\":" + String(AIR_TEMPERATURE) + ","
-           "\"air_humidity\":" + String(AIR_HUMIDITY) + ","
+           "\"air_temperature\":" + String(airTemp, 1) + ","
+           "\"air_humidity\":" + String(airHum, 1) + ","
            "\"soil_moisture\":" + String(soilPercent) + "}";
 }
 
-void showTelemetry(int soilPercent) {
+void showTelemetry(int soilPercent, float airTemp, float airHum) {
   display.clear();
-  display.drawString(0, 0, "AIR TEMP: " + String(AIR_TEMPERATURE) + "°C");
-  display.drawString(0, 14, "AIR HUM: " + String(AIR_HUMIDITY) + "%");
+  display.drawString(0, 0, "AIR TEMP: " + String(airTemp, 1) + "°C");
+  display.drawString(0, 14, "AIR HUM: " + String(airHum, 1) + "%");
   display.drawString(0, 28, "SOIL: " + String(soilPercent) + "%");
   display.display();
 }
@@ -134,7 +145,17 @@ void loop() {
   int humSoil = medianOf3(soil.s1, soil.s2, soil.s3);
   int soilPercent = soilRawToPercent(humSoil);
 
-  String msg = buildTelemetry(soilPercent);
+  float airTemp = sht31.readTemperature();
+  float airHum = sht31.readHumidity();
+
+  if (isnan(airTemp) || isnan(airHum)) {
+    Serial.println("SHT31 read failed (NAN) — check wiring");
+    airTemp = 0;
+    airHum = 0;
+  }
+
+
+  String msg = buildTelemetry(soilPercent, airTemp, airHum);
   int state = radio.transmit(msg);
 
   if (state == RADIOLIB_ERR_NONE) {
@@ -143,6 +164,6 @@ void loop() {
     Serial.printf("Send failed, code %d\n", state);
   }
 
-  showTelemetry(soilPercent);
+  showTelemetry(soilPercent, airTemp, airHum);
   delay(1000);
 }

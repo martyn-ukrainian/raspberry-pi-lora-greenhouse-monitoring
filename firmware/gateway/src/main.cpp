@@ -18,6 +18,10 @@
 #define OLED_RST   21
 #define VEXT_CTRL  36
 
+// Вузол шле раз/сек — 10 сек тиші вже вважаємо втратою зв'язку, а не просто
+// пропущеним пакетом.
+#define CONNECTION_TIMEOUT_MS 10000
+
 SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
 SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 void powerOnVext() {
@@ -63,6 +67,8 @@ void onReceive() {
 
 int nodeIds[MAX_NODES] = {0, 1, 2};
 unsigned long lastSeen[MAX_NODES] = {0, 0, 0};
+int lastRssi[MAX_NODES] = {0, 0, 0};
+float lastSnr[MAX_NODES] = {0, 0, 0};
 
 int parseNodeId(const String &json) {
   int idx = json.indexOf("\"node_id\":");
@@ -96,10 +102,10 @@ void setup() {
   radio.startReceive();
 }
 
-void reportReceived(const String &received) {
+void reportReceived(const String &received, int rssi, float snr) {
   String withSignal = received.substring(0, received.length() - 1)
-    + ",\"rssi\":" + String((int)radio.getRSSI())
-    + ",\"snr\":" + String(radio.getSNR(), 1)
+    + ",\"rssi\":" + String(rssi)
+    + ",\"snr\":" + String(snr, 1)
     + "}";
   Serial.println(withSignal);
 }
@@ -109,22 +115,43 @@ String getSecAgo(unsigned long seenAtMillis) {
   return String(secAgo) + "s ago";
 }
 
+// Груба класифікація "наскільки хороший" зв'язок — орієнтовно під LoRa
+// 868 МГц (SX1262). Від'ємний SNR тут — нормальне явище, не проблема.
+char signalTier(int rssi, float snr) {
+  if (rssi > -90 && snr > 0) return 'S';    // strong
+  if (rssi > -110 && snr > -10) return 'M'; // medium
+  return 'W';                               // weak
+}
+
 void showLastSeen() {
   display.clear();
   display.drawString(0, 0, "Greenhouse Monitor");
+
   for (int i = 0; i < MAX_NODES; i++) {
     String line = "gh" + String(nodeIds[i]) + ": ";
-    line += (lastSeen[i] == 0) ? "---" : getSecAgo(lastSeen[i]);
+
+    if (lastSeen[i] == 0) {
+      line += "---";
+    } else if (millis() - lastSeen[i] < CONNECTION_TIMEOUT_MS) {
+      line += String(lastRssi[i]) + "dBm " + String(signalTier(lastRssi[i], lastSnr[i]));
+    } else {
+      line += getSecAgo(lastSeen[i]);
+    }
+
     display.drawString(0, 14 + i * 12, line);
   }
+
   display.display();
 }
 
-void updateLastSeen(const String &received) {
+void updateLastSeen(const String &received, int rssi, float snr) {
   int nodeId = parseNodeId(received);
+
   for (int i = 0; i < MAX_NODES; i++) {
     if (nodeId == nodeIds[i]) {
       lastSeen[i] = millis();
+      lastRssi[i] = rssi;
+      lastSnr[i] = snr;
       break;
     }
   }
@@ -138,8 +165,10 @@ void loop() {
     int state = radio.readData(received);
 
     if (state == RADIOLIB_ERR_NONE) {
-      reportReceived(received);
-      updateLastSeen(received);
+      int rssi = (int)radio.getRSSI();
+      float snr = radio.getSNR();
+      reportReceived(received, rssi, snr);
+      updateLastSeen(received, rssi, snr);
     } else if (state != RADIOLIB_ERR_CRC_MISMATCH) {
       Serial.printf("Receive failed, code %d\n", state);
     }
