@@ -23,10 +23,25 @@ ssh agro@192.168.0.X
 ## Статус сервісів
 
 ```bash
-sudo systemctl status agro-server agro-simulator
+sudo systemctl status agro-server agro-adapter agro-bot
 ```
 
-Обидва мають бути `active (running)`.
+- `agro-server` — FastAPI, порт 8008.
+- `agro-adapter` — USB-шлюз → сервер (привʼязаний до `/dev/ttyUSB0`; стартує, коли шлюз воткнуто).
+- `agro-bot` — Telegram-бот (`/get`).
+- `agro-simulator` — генератор тестових даних, **вимкнено** (перейшли на реальні сенсори). Увімкнути назад: `sudo systemctl enable --now agro-simulator`.
+
+## Telegram-бот: доступ користувачам
+
+Хто напише боту — потрапляє в таблицю `botuser` з `allow=0`. Увімкнути доступ:
+
+```bash
+cd ~/agro/server
+uv run python -c "from bot_users import BotUserRepository; from database import engine; BotUserRepository(engine).set_allow(<USER_ID>, True)"
+
+# подивитись усіх, хто підключився:
+uv run python -c "from bot_users import BotUserRepository; from database import engine; [print(u.user_id, u.username, u.first_name, u.allow) for u in BotUserRepository(engine).list_all()]"
+```
 
 ## Логи
 
