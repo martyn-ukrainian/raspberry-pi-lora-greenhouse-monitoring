@@ -17,6 +17,13 @@ export async function createMeasurement(data: {
   })
 }
 
+export async function getLatestMeasurement(
+  nodeId: string,
+): Promise<Measurement | null> {
+  const params = new URLSearchParams({ node_id: nodeId });
+  return apiClient<Measurement | null>(`/measurements/latest?${params}`)
+}
+
 export async function getAggregate(
   nodeId: string,
   bucketMinutes: number = 5,

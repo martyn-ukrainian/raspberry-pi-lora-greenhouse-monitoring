@@ -4,6 +4,8 @@ export type Measurement = {
   air_temperature: number;
   air_humidity: number;
   soil_moisture: number;
+  rssi: number | null;
+  snr: number | null;
   timestamp: string;
 }
 

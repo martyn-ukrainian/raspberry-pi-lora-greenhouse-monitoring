@@ -2,6 +2,7 @@
   "expo": {
     "name": "AgroMonitor",
     "slug": "agromonitor",
+    "owner": "martynukrainian",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon_512.png",
@@ -16,6 +17,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.martynukrainian.agromonitor",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#586E5A"
@@ -25,6 +27,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7ea7adb0-668e-426e-95a8-124009cd979c"
+      }
     }
   }
 }

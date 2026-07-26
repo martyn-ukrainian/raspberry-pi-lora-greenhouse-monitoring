@@ -4,8 +4,10 @@ import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import MiniChart from "./MiniChart";
+import SignalIndicator from "./SignalIndicator";
 import { useAggregate } from "../hooks/useAggregate";
 import { useGreenhouses } from "../hooks/useGreenhouses";
+import { useLatestMeasurement } from "../hooks/useLatestMeasurement";
 import { formatTime } from "../utils/dateformat";
 import type { HomeStackParamList } from "../types/navigation";
 import { SENSORS, SENSOR_KEYS } from "../config/sensors";
@@ -21,6 +23,7 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
   const navigation = useNavigation<NavProp>();
   const { data: buckets } = useAggregate(nodeId, { bucketMinutes });
   const { data: greenhouses } = useGreenhouses();
+  const { data: latestMeasurement } = useLatestMeasurement(nodeId);
 
   const config = greenhouses?.find(g => g.node_id === nodeId);
   const label = config?.label ?? nodeId;
@@ -41,9 +44,17 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
         <Text className="text-stone-800 text-lg font-semibold mb-2">
           {label}
         </Text>
-        {latest && (
-          <Text className="text-stone-500">{formatTime(latest.bucket)}</Text>
-        )}
+        <View className="items-end gap-1">
+          {latest && (
+            <Text className="text-stone-500">{formatTime(latest.bucket)}</Text>
+          )}
+          {latestMeasurement && (
+            <SignalIndicator
+              rssi={latestMeasurement.rssi}
+              snr={latestMeasurement.snr}
+            />
+          )}
+        </View>
       </View>
 
       {latest && (
