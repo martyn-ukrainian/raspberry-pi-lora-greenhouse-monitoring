@@ -15,6 +15,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from settings import settings  # noqa: E402
 from measurements import Measurement  # noqa: E402, F401
 from alerts import StoredAlert  # noqa: E402, F401
+from bot_users import BotUser  # noqa: E402, F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
