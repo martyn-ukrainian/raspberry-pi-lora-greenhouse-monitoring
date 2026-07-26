@@ -32,7 +32,7 @@ export default function SignalIndicator({ rssi, snr }: Props) {
       accessibilityLabel={`${label}: ${rssi} дБм, SNR ${snr} дБ`}
     >
       <MaterialCommunityIcons name={icon} size={16} color={color} />
-      <Text className="ml-1 text-stone-500 text-xs">{rssi}дБм</Text>
+      <Text className="ml-1 text-stone-500 text-xs md:text-sm">{rssi}дБм</Text>
     </View>
   );
 }

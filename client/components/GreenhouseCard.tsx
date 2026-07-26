@@ -1,4 +1,4 @@
-import { View, Text, Pressable } from "react-native";
+import { View, Text, Pressable, useWindowDimensions } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -21,6 +21,9 @@ type NavProp = NativeStackNavigationProp<HomeStackParamList, "HomeList">;
 
 export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
   const navigation = useNavigation<NavProp>();
+  // ~27% екрана під графік, з межами щоб не вироджувався на малих/великих екранах
+  const { height: winHeight } = useWindowDimensions();
+  const chartHeight = Math.max(120, Math.min(340, Math.round(winHeight * 0.27)));
   const { data: buckets } = useAggregate(nodeId, { bucketMinutes });
   const { data: greenhouses } = useGreenhouses();
   const { data: latestMeasurement } = useLatestMeasurement(nodeId);
@@ -41,12 +44,12 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
       className="bg-white p-4 rounded-lg mb-3 active:opacity-80"
     >
       <View className="flex-row justify-between items-start">
-        <Text className="text-stone-800 text-lg font-semibold mb-2">
+        <Text className="text-stone-800 text-lg md:text-xl font-semibold mb-2">
           {label}
         </Text>
         <View className="items-end gap-1">
           {latest && (
-            <Text className="text-stone-500">{formatTime(latest.bucket)}</Text>
+            <Text className="text-stone-500 md:text-base">{formatTime(latest.bucket)}</Text>
           )}
           {latestMeasurement && (
             <SignalIndicator
@@ -66,7 +69,7 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
             return (
               <View key={key} className="flex-row items-center">
                 <Ionicons name={meta.icon} size={16} color={meta.color} />
-                <Text className="ml-1 text-stone-900 font-medium">
+                <Text className="ml-1 text-stone-900 font-medium md:text-base">
                   {value.toFixed(isPercent ? 0 : 1)}{meta.unit}
                 </Text>
               </View>
@@ -77,6 +80,7 @@ export default function GreenhouseCard({ nodeId, bucketMinutes }: Props) {
 
       <MiniChart
         data={chartData}
+        height={chartHeight}
         min={config?.thresholds.air_temperature.min}
         max={config?.thresholds.air_temperature.max}
       />

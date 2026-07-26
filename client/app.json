@@ -4,7 +4,7 @@
     "slug": "agromonitor",
     "owner": "martynukrainian",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon_512.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -32,6 +32,17 @@
       "eas": {
         "projectId": "7ea7adb0-668e-426e-95a8-124009cd979c"
       }
-    }
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
   }
 }

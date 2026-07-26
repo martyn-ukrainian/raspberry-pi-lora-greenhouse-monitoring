@@ -31,7 +31,7 @@ export default function AlertsScreen() {
       refreshing={isRefetching}
       onRefresh={refetch}
     >
-      <Text className="text-brand text-2xl font-bold my-2">Алерти</Text>
+      <Text className="text-brand text-2xl md:text-[26px] font-bold my-2">Алерти</Text>
 
       {data && data.length === 0 && (
         <View className="items-center py-8">

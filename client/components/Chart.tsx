@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { View, Platform } from "react-native";
+import { View, Platform, useWindowDimensions } from "react-native";
 import { CartesianChart, Line } from "victory-native";
 import {
   matchFont,
@@ -17,10 +17,9 @@ type Props = {
   unit?: string;
 };
 
-const font = matchFont({
-  fontFamily: Platform.select({ ios: "Helvetica", default: "serif" }),
-  fontSize: 12,
-});
+const fontFamily = Platform.select({ ios: "Helvetica", default: "serif" });
+const font = matchFont({ fontFamily, fontSize: 12 });
+const fontTablet = matchFont({ fontFamily, fontSize: 14 });
 
 export default function Chart({
   data,
@@ -30,6 +29,8 @@ export default function Chart({
   max,
   unit = "",
 }: Props) {
+  const { width: winWidth } = useWindowDimensions();
+  const axisFont = winWidth >= 768 ? fontTablet : font;
   const yDomain = useMemo(() => {
     if (data.length === 0) return undefined;
     const ys = data.map((d) => d.y);
@@ -51,7 +52,7 @@ export default function Chart({
         domain={yDomain ? { y: yDomain } : undefined}
         domainPadding={{ top: 12, bottom: 12, left: 8, right: 8 }}
         axisOptions={{
-          font,
+          font: axisFont,
           tickCount: { x: 5, y: 5 },
           lineWidth: { grid: { x: 0, y: 1 }, frame: 0 },
           lineColor: {

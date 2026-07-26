@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { View, Platform } from "react-native";
+import { View, Platform, useWindowDimensions } from "react-native";
 import { CartesianChart, Line, Area } from "victory-native";
 import { matchFont, Line as SkiaLine, DashPathEffect } from "@shopify/react-native-skia";
 
@@ -11,10 +11,9 @@ type Props = {
   max?: number | null;
 }
 
-const font = matchFont({
-  fontFamily: Platform.select({ ios: "Helvetica", default: "serif" }),
-  fontSize: 11,
-})
+const fontFamily = Platform.select({ ios: "Helvetica", default: "serif" });
+const font = matchFont({ fontFamily, fontSize: 11 });
+const fontTablet = matchFont({ fontFamily, fontSize: 13 });
 
 export default function MiniChart({
   data,
@@ -23,6 +22,8 @@ export default function MiniChart({
   min,
   max,
 }: Props) {
+  const { width: winWidth } = useWindowDimensions();
+  const axisFont = winWidth >= 768 ? fontTablet : font;
   const yDomain = useMemo(() => {
     if (data.length === 0) return undefined;
     const ys = data.map((d) => d.y);
@@ -41,7 +42,7 @@ export default function MiniChart({
         domain={yDomain ? { y: yDomain } : undefined}
         domainPadding={{ top: 4, bottom: 4, left: 4, right: 4 }}
         axisOptions={{
-          font,
+          font: axisFont,
           tickCount: { x: 6, y: 4 },
           lineWidth: 0,
           labelColor: "#a8a29e",

@@ -17,7 +17,7 @@ export default function HomeScreen() {
       onRetry={refetch}
     >
       <View className="mb-2">
-        <Text className="text-brand font-bold my-2 text-2xl">Теплиці</Text>
+        <Text className="text-brand font-bold my-2 text-2xl md:text-[26px]">Теплиці</Text>
       </View>
       {greenhouses?.map((g) => (
         <GreenhouseCard

@@ -48,6 +48,9 @@ function MetricScene({ metric, nodeId, since, bucketMinutes, config }: MetricSce
     bucketMinutes,
     since,
   });
+  // Великий графік: ~36% висоти екрана (замість фіксованих 240)
+  const { height: winHeight } = useWindowDimensions();
+  const chartHeight = Math.max(240, Math.min(480, Math.round(winHeight * 0.36)));
 
   const meta = SENSORS[metric];
   const thresholds = config?.thresholds[metric];
@@ -64,6 +67,7 @@ function MetricScene({ metric, nodeId, since, bucketMinutes, config }: MetricSce
       <View className="bg-white p-4 rounded-lg mb-3">
         <Chart
           data={chartData}
+          height={chartHeight}
           min={thresholds?.min}
           max={thresholds?.max}
           unit={meta.unit}
@@ -119,7 +123,7 @@ function GreenhousePage({ greenhouse, since, bucketMinutes }: GreenhousePageProp
             }`}
           >
             <Text
-              className={`text-center text-sm ${
+              className={`text-center text-sm md:text-base ${
                 i === index
                   ? "font-semibold text-brand"
                   : "text-stone-600"
@@ -227,7 +231,7 @@ export default function GreenhouseDetailScreen({
     <SafeAreaView edges={[]} className="flex-1 bg-stone-100">
       <View className="px-2 pt-2">
         <PeriodSelector value={period} onChange={setPeriod} />
-        <Text className="text-stone-500 text-sm mt-2 mb-1">{periodMeta.description}</Text>
+        <Text className="text-stone-500 text-sm md:text-base mt-2 mb-1">{periodMeta.description}</Text>
       </View>
 
       <PagerView

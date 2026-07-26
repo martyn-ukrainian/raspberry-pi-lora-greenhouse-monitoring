@@ -4,7 +4,7 @@ import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import HomeStack from "./navigation/HomeStack";
@@ -64,15 +64,18 @@ function AppContent() {
   usePrefetchGreenhouses();
   const { data: alerts } = useAlerts();
   const unread = (alerts ?? []).filter((a) => !a.acknowledged).length;
+  // edge-to-edge (Android): фіксований height ігнорує системну навігацію,
+  // тому додаємо нижній inset — інакше таб-бар лягає під панель Android
+  const insets = useSafeAreaInsets();
 
   return (
-     <SafeAreaProvider>
       <NavigationContainer theme={AgroTheme} >
         <Tab.Navigator screenOptions={{
           headerShown: false,
           tabBarStyle: {
-            height: 80,
+            height: 80 + insets.bottom,
             paddingTop: 4,
+            paddingBottom: insets.bottom,
             borderTopColor: "#e7e5e4",
             backgroundColor: "#ffffff"//"#f9f9f1"
           },
@@ -96,7 +99,6 @@ function AppContent() {
           ))}
         </Tab.Navigator>
       </NavigationContainer>
-    </SafeAreaProvider>
   )
 }
 
@@ -105,7 +107,9 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
-        <AppContent />
+        <SafeAreaProvider>
+          <AppContent />
+        </SafeAreaProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
   );

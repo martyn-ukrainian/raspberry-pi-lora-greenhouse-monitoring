@@ -39,10 +39,10 @@ export default function AlertCard({ alert }: Props) {
           />
           {" "}
           {SENSORS[alert.sensor].briefLabel} {KIND_LABEL[alert.kind]}</Text>
-        <Text className="text-stone-600 text-sm mt-0.5">
+        <Text className="text-stone-600 text-sm md:text-base mt-0.5">
           {alert.value.toFixed(1)} · межа {alert.boundary.toFixed(1)} · {alert.duration_minutes} хв
         </Text>
-        <Text className="text-stone-400 text-xs mt-1">{formatTime(alert.created_at)}</Text>
+        <Text className="text-stone-400 text-xs md:text-sm mt-1">{formatTime(alert.created_at)}</Text>
       </View>
     </View>
   )

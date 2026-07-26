@@ -52,7 +52,7 @@ export default function Screen({
             refreshControl={onRefresh && (<RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} />)}
             className="flex-1 p-2">
             {title && (
-              <Text className="text-brand text-2xl font-bold text-center mb-4">
+              <Text className="text-brand text-2xl md:text-[26px] font-bold text-center mb-4">
                 {title}
               </Text>
             )}

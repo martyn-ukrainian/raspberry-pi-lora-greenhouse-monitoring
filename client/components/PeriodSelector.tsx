@@ -34,7 +34,7 @@ export default function PeriodSelector({ value, onChange }: Props) {
             }`}
           >
             <Text
-              className={`text-center text-xs ${
+              className={`text-center text-xs md:text-sm ${
                 active ? "font-semibold text-brand" : "text-stone-600"
               }`}
             >
