@@ -87,13 +87,15 @@ def run() -> None:
                 "air_temperature": packet.air_temperature,
                 "air_humidity": packet.air_humidity,
                 "soil_moisture": packet.soil_moisture,
+                "rssi": packet.rssi,
+                "snr": packet.snr,
             }
 
             try:
                 response = client.post("/measurements", json=body)
                 response.raise_for_status()
                 logger.info(
-                    "Forwarded %s: temp=%.1f humidity=%.1f soil=%f.1f rssi=%d snr=%.1f",
+                    "Forwarded %s: temp=%.1f humidity=%.1f soil=%.1f rssi=%d snr=%.1f",
                     label,
                     packet.air_temperature,
                     packet.air_humidity,

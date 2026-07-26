@@ -21,6 +21,8 @@ class Measurement(SQLModel, table=True):  # type: ignore[call-arg]
     air_temperature: float
     air_humidity: float
     soil_moisture: float
+    rssi: int | None = Field(default=None)
+    snr: float | None = Field(default=None)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_serializer("timestamp")
@@ -64,6 +66,16 @@ class MeasurementRepository:
     def list_all(self) -> list[Measurement]:
         with Session(self.engine) as session:
             return session.exec(select(Measurement)).all()
+
+    def get_latest(self, node_id: str) -> Measurement | None:
+        with Session(self.engine) as session:
+            stmt = (
+                select(Measurement)
+                .where(Measurement.node_id == node_id)
+                .order_by(Measurement.timestamp.desc())
+                .limit(1)
+            )
+            return session.exec(stmt).first()
 
     def list_aggregate(
         self,
@@ -134,6 +146,11 @@ def read_measurement(repo: RepositoryDep) -> list[Measurement]:
     measurements = repo.list_all()
     logger.info("Returned %d measurements", len(measurements))
     return measurements
+
+
+@router.get("/latest")
+def read_latest_measurement(node_id: str, repo: RepositoryDep) -> Measurement | None:
+    return repo.get_latest(node_id)
 
 
 @router.get("/aggregate")
