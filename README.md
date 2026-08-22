@@ -12,6 +12,24 @@ This repository doubles as a portfolio artefact for embedded / defence-sector ro
 
 Eight greenhouses total: five active cucumber and tomato houses, one seedling house that acts as the system hub, one new standard house, and one new double-film house. Distances between houses: 50–250 m. Phase 1 covers three sensor nodes and one gateway.
 
+## LoRa Node
+
+Each greenhouse runs one autonomous LoRa node built on a **Heltec WiFi LoRa 32 V3** (ESP32-S3 + SX1262). It carries an SHT31 (air temperature/humidity) and a capacitive soil-moisture sensor, and reports to the gateway over 868 MHz LoRa.
+
+![Heltec WiFi LoRa 32 V3 pinout](firmware/schema.jpg)
+
+Full pinout, wiring, and firmware — [`firmware/README.md`](./firmware/README.md).
+
+## Soil sensor characterisation (v1.2 vs v2.0)
+
+Measured in a small 1 kg soil bucket, water added in 50 mL increments, sensor output logged as raw ADC + mV via a dedicated bench firmware — [`firmware/soil-calibration`](./firmware/soil-calibration).
+
+**v2.0 wins outright**: roughly 4× faster warm-up (direct battery-life win on a sleeping node) and ~6.6× finer moisture resolution than v1.2, whose 5V-only design comes out compressed and noisier on the node's 3.3V supply.
+
+![v2.0 calibration curve: water added (mL) vs sensor output (mV)](firmware/soil-calibration/data/calibration_curve.png)
+
+Full numbers and method — [`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
+
 ## Architecture
 
 Each greenhouse is an autonomous node built on a **Heltec WiFi LoRa 32 V3** (ESP32-S3 with SX1262). Each node carries an **SHT31** for air temperature and humidity, plus a **v1.2 capacitive soil-moisture sensor**. Readings are transmitted over **868 MHz LoRa**. A gateway node in the seedling greenhouse aggregates all traffic and forwards it via USB to a **Raspberry Pi 5**. The Pi runs a **Python + FastAPI** backend backed by **SQLite (via SQLModel)**, applies threshold logic, and sends notifications through a **Telegram bot**.
@@ -76,69 +94,6 @@ agro-server
 ```
 
 Thresholds and alert config live per-greenhouse. Each sensor may override dwell time; a shared `defaults` block applies otherwise.
-
-## Soil sensor characterisation (v1.2)
-
-The soil-moisture reading is the one measurement in this system that was never
-grounded in anything: `soilRawToPercent()` shipped with hand-waved constants
-(`map(raw, 3000, 1200, 0, 100)`) that nobody had verified. A dedicated bench
-firmware — [`firmware/soil-calibration`](./firmware/soil-calibration) — now
-measures the sensors instead of guessing at them. It emits raw ADC and
-millivolts over USB, because a percentage is the *output* of calibration and
-useless as its input.
-
-Measured on a **v1.2 TENSTAR capacitive sensor at 3.3 V** (2026-08-22):
-
-| State | raw | mV | noise σ |
-|---|---:|---:|---:|
-| air | 2646 | 2229 | ~4 mV |
-| dry soil | 2489 | 2101 | 0.7–2.8 mV |
-
-**Warm-up.** How long the sensor needs after power is applied before its output
-can be trusted — the question that decides battery life on a sleeping node,
-since every wake-up is a cold start. Metric `T±k` (defined in
-[`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md)) is the time
-after which the curve no longer leaves ±k mV of its final value:
-
-| Time without power | `T±50` | `T±20` | `T±10` |
-|---|---:|---:|---:|
-| 3 s | 0.3 s | 0.3 s | **0.4 s** |
-| 120 s | 0.1 s | 0.4 s | **0.5 s** |
-
-A 40× longer power-off changed nothing: the peak-detector capacitor bottoms out
-within seconds and recharges in half a second. The low-power firmware currently
-budgets **10 000 ms** for this — roughly a 20× overprovision, and by the figures
-in [`docs/power-budget.md`](./docs/power-budget.md) that is most of a doubling
-in battery life.
-
-### v1.2 vs v2.0
-
-Two specimens of each version, measured on the same ADC channel, in the same
-hole, in the same soil — so the difference can only come from the sensor.
-
-| | v1.2 | v2.0 | |
-|---|---:|---:|---|
-| air | 2229 mV | 2721 mV | |
-| dry soil | 2101 mV | 2414 mV | |
-| **span air→soil** | **128 mV** | **307 mV** | 2.4× wider |
-| noise σ | 2.9 mV | 1.05 mV | 2.8× quieter |
-| **span / σ** | **44** | **292** | **6.6× finer resolution** |
-| `T±10` warm-up | 0.4 s | 0.1 s | 4× faster |
-
-v2.0 resolves soil moisture roughly **6.6× finer** and warms up **4× faster**.
-Since the battery node has no 5 V rail at all — the Heltec's 5V pin is fed from
-USB — and v1.2 is a 5 V design whose range is compressed at 3.3 V, the reserve
-batch is the one that belongs in the node.
-
-**A control measurement decided how much of this to believe.** `v1.2-A` was
-re-inserted at the end of the session and read 9 mV away from its own first
-measurement — that is the reproducibility of the whole procedure, not ADC noise.
-Against that yardstick the 310 mV version gap is 34× the error and stands; the
-2–5 mV spread *between specimens of one batch* is below it and was withdrawn as
-unmeasured.
-
-Numbers, method, and the `T±k` definition:
-[`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
 
 ## Repository layout
 
