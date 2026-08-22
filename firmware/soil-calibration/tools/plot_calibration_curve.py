@@ -25,7 +25,12 @@ import statistics
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-    sys.exit("Потрібен matplotlib: uv run --with matplotlib tools/plot_calibration_curve.py ...")
+    sys.exit("Потрібен matplotlib: uv run --with matplotlib --with scipy tools/plot_calibration_curve.py ...")
+
+try:
+    from scipy.interpolate import PchipInterpolator
+except ImportError:
+    PchipInterpolator = None  # згладжування вимкнено, лінії між точками прямі
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,7 +122,18 @@ def main() -> None:
         mv = mv[: len(waters)]
 
     fig, ax = plt.subplots(figsize=(8, 5), dpi=150)
-    ax.plot(waters, mv, marker="o", color="#2a7f62", linewidth=2, markersize=7, label="settled")
+
+    if len(waters) >= 3 and PchipInterpolator is not None:
+        # PCHIP, не кубічний сплайн: монотонний, без вигинів-«переліт» між
+        # точками — крива не малює хибних локальних піків між реальними
+        # замірами, тільки згладжує кути.
+        curve = PchipInterpolator(waters, mv)
+        dense_x = [waters[0] + (waters[-1] - waters[0]) * i / 299 for i in range(300)]
+        dense_y = curve(dense_x)
+        ax.plot(dense_x, dense_y, color="#2a7f62", linewidth=2, label="settled")
+        ax.plot(waters, mv, marker="o", color="#2a7f62", linewidth=0, markersize=7)
+    else:
+        ax.plot(waters, mv, marker="o", color="#2a7f62", linewidth=2, markersize=7, label="settled")
 
     for w, v in zip(waters, mv, strict=True):
         ax.annotate(f"{w:.0f} mL", xy=(w, v), textcoords="offset points",
