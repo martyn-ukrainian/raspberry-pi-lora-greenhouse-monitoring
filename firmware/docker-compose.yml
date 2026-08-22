@@ -13,6 +13,20 @@ services:
       - ./gateway:/project
     entrypoint: ["pio"]
 
+  greenhouse-node-lowpower:
+    build: .
+    image: agro-firmware
+    volumes:
+      - ./greenhouse-node-lowpower:/project
+    entrypoint: ["pio"]
+
+  soil-calibration:
+    build: .
+    image: agro-firmware
+    volumes:
+      - ./soil-calibration:/project
+    entrypoint: ["pio"]
+
   node_sensor:
     build: .
     image: agro-firmware

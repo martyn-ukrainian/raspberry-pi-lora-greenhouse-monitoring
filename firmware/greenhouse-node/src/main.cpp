@@ -58,6 +58,30 @@ void initDisplay() {
   display.setFont(ArialMT_Plain_10);
 }
 
+// ---------------------------------------------------------------------------
+// Serial: той самий вимикач, що і в greenhouse-node-lowpower
+// ---------------------------------------------------------------------------
+// Ця прошивка стендова: вона живе на столі з підключеним USB, і друк — це
+// половина її сенсу, тому -DAGRO_DEBUG_SERIAL стоїть у platformio.ini і
+// друк за замовчуванням УВІМКНЕНО. Механізм тут заради єдиного стилю: якщо
+// цю прошивку колись понесуть у теплицю, вимикач уже на місці, і не треба
+// згадувати, що саме в ній Serial живий, а в сусідній ні.
+//
+// Префікс AGRO_ обов'язковий: у Adafruit BusIO є свій макрос DEBUG_SERIAL,
+// голе ім'я ламає збірку бібліотеки.
+
+#ifdef AGRO_DEBUG_SERIAL
+#define LOG_BEGIN() Serial.begin(115200)
+#define LOG(...)    Serial.printf(__VA_ARGS__)
+#define LOG_LN(x)   Serial.println(x)
+#else
+// Аргументи не обчислюються — не класти в LOG() нічого, крім читання
+// вже готових значень.
+#define LOG_BEGIN() ((void)0)
+#define LOG(...)    ((void)0)
+#define LOG_LN(x)   ((void)0)
+#endif
+
 void showStatus(const String &line1, const String &line2) {
   display.clear();
   display.drawString(0, 0, line1);
@@ -66,7 +90,7 @@ void showStatus(const String &line1, const String &line2) {
 }
 
 void setup() {
-  Serial.begin(115200);
+  LOG_BEGIN();
   initDisplay();
   showStatus("Loading...", "");
 
@@ -75,17 +99,17 @@ void setup() {
   airWire.begin(AIR_SDA, AIR_SCL);
 
   if (!sht31.begin(0x44)) {
-    Serial.println("SHT31 not found");
+    LOG_LN("SHT31 not found");
   }
 
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
   int state = radio.begin(868.0);
 
   if (state == RADIOLIB_ERR_NONE) {
-    Serial.println("LoRa init OK (868 MHz)");
+    LOG_LN("LoRa init OK (868 MHz)");
     showStatus("LoRa: OK", "868 MHz");
   } else {
-    Serial.printf("LoRa init failed, code %d\n", state);
+    LOG("LoRa init failed, code %d\n", state);
     showStatus("LoRa: FAIL", "code " + String(state));
   }
 
@@ -149,7 +173,7 @@ void loop() {
   float airHum = sht31.readHumidity();
 
   if (isnan(airTemp) || isnan(airHum)) {
-    Serial.println("SHT31 read failed (NAN) — check wiring");
+    LOG_LN("SHT31 read failed (NAN) — check wiring");
     airTemp = 0;
     airHum = 0;
   }
@@ -159,9 +183,9 @@ void loop() {
   int state = radio.transmit(msg);
 
   if (state == RADIOLIB_ERR_NONE) {
-    Serial.println("Sent! " + msg);
+    LOG_LN("Sent! " + msg);
   } else {
-    Serial.printf("Send failed, code %d\n", state);
+    LOG("Send failed, code %d\n", state);
   }
 
   showTelemetry(soilPercent, airTemp, airHum);

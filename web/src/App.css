@@ -1,0 +1,45 @@
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.status {
+  padding: 3rem 0;
+  color: var(--text);
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.updated {
+  color: var(--text);
+  margin-bottom: 1.5rem;
+}
+
+.cards {
+  display: grid;
+  gap: 1rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.card .value {
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.card .label {
+  color: var(--text);
+  font-size: 0.9rem;
+}

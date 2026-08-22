@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from alerts import router as alerts_router
 from database import init_db
+from events import router as events_router
 from greenhouses import router as greenhouses_router
 from logger import get_logger, setup_logging
 from measurements import router as measurements_router
@@ -26,6 +27,7 @@ app.add_middleware(
 app.include_router(measurements_router)
 app.include_router(greenhouses_router)
 app.include_router(alerts_router)
+app.include_router(events_router)
 
 
 @app.get("/")

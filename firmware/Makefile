@@ -7,7 +7,26 @@ HOST_PYTHON ?= $(shell command -v python3.11 2>/dev/null || command -v python3)
 # `make upload PROJECT=gateway SERIAL_PORT=/dev/cu.usbserial-5`.
 SERIAL_PORT ?= /dev/cu.usbserial-0001
 
-.PHONY: setup-host _ensure-host-pio init build upload deploy monitor shell clean
+# Проєкт з кількома середовищами збірки (зараз це лише greenhouse-node-lowpower,
+# де середовище задає інтервал сну) треба збирати з явним `-e`, інакше pio візьме
+# default_envs. Порожній PIO_ENV = стара поведінка, решту проєктів не зачіпає.
+PIO_ENV ?=
+PIO_ENV_ARG = $(if $(PIO_ENV),-e $(PIO_ENV),)
+
+# Інтервал сну енергозберігаючої прошивки, хвилини. Має збігатись з іменем
+# середовища в greenhouse-node-lowpower/platformio.ini (5 або 15).
+SLEEP ?= 15
+
+# gateway сидить на USB Pi, не на Mac — деплой іде через SSH, деталі в DEPLOY.md.
+PI_HOST ?= agro@agro-pi.local
+PI_DIR ?= agro
+PI_GATEWAY_PORT ?= /dev/ttyUSB0
+
+# Прогін калібрувального стенду: ім'я йде в назву CSV-файлу, щоб прогони не
+# зливались в одну купу. `make soil-log RUN=v12-vs-v20`.
+RUN ?= run
+
+.PHONY: setup-host _ensure-host-pio init build upload deploy deploy-lowpower deploy-soil-cal deploy-gateway soil-log soil-watch soil-summary monitor shell clean
 
 # Локальний pio (для upload/monitor — потребують USB, Docker на macOS туди не дотягується).
 # Ставимо саме під Python 3.11: на 3.13+/3.14 pip не завжди має готові wheel-и
@@ -26,13 +45,53 @@ init:
 	docker compose run --rm $(PROJECT) project init --board $(BOARD)
 
 build:
-	docker compose run --rm $(PROJECT) run
+	docker compose run --rm $(PROJECT) run $(PIO_ENV_ARG)
 
 upload: _ensure-host-pio
-	SERIAL_PORT=$(SERIAL_PORT) pio run -d $(PROJECT) -t upload
+	SERIAL_PORT=$(SERIAL_PORT) pio run -d $(PROJECT) $(PIO_ENV_ARG) -t upload
 
 # build (в Docker) + upload (з хоста) одним викликом.
 deploy: build upload
+
+# Енергозберігаюча прошивка вузла: інтервал сну обирається збіркою, не кодом.
+#   make deploy-lowpower           -> 15 хв (дефолт)
+#   make deploy-lowpower SLEEP=5   -> 5 хв
+deploy-lowpower:
+	$(MAKE) deploy PROJECT=greenhouse-node-lowpower PIO_ENV=lowpower_$(SLEEP)min
+
+# Калібрувальний стенд ґрунтових сенсорів: збірка + заливка.
+#   make deploy-soil-cal
+#   make soil-log RUN=v12-vs-v20
+# Логер тримає той самий порт, що й monitor — разом їх не запускати.
+deploy-soil-cal:
+	$(MAKE) deploy PROJECT=soil-calibration
+
+soil-log:
+	SERIAL_PORT=$(SERIAL_PORT) uv run --with pyserial \
+		soil-calibration/tools/soil_log.py --run $(RUN)
+
+# Живий монітор для етапу підключення дротів: по сенсору в рядок, зі шкалою
+# і присудом "OK / ПЛАВАЄ / НУЛЬ". Той самий порт, що й soil-log — не разом.
+soil-watch:
+	SERIAL_PORT=$(SERIAL_PORT) uv run --with pyserial \
+		soil-calibration/tools/soil_watch.py
+
+# Підсумок останнього прогону; інший файл — `make soil-summary CSV=шлях`.
+CSV ?= $(shell ls -t soil-calibration/data/*.csv 2>/dev/null | head -1)
+soil-summary:
+	@test -n "$(CSV)" || { echo "немає жодного CSV у soil-calibration/data/"; exit 1; }
+	$(HOST_PYTHON) soil-calibration/tools/soil_summary.py $(CSV)
+
+# gateway висить на USB Pi — заливка йде прямо там через SSH, не з Mac.
+# Зупиняє agro-adapter (тримає той самий порт) перед upload і піднімає
+# назад завжди, навіть якщо заливка впала. Деталі — firmware/DEPLOY.md.
+deploy-gateway:
+	rsync -az --exclude .pio gateway/ $(PI_HOST):$(PI_DIR)/firmware/gateway/
+	ssh $(PI_HOST) 'set -e; \
+		sudo systemctl stop agro-adapter; \
+		trap "sudo systemctl start agro-adapter" EXIT; \
+		cd $(PI_DIR)/firmware/gateway; \
+		SERIAL_PORT=$(PI_GATEWAY_PORT) ~/.local/bin/uv tool run platformio run -t upload'
 
 monitor: _ensure-host-pio
 	SERIAL_PORT=$(SERIAL_PORT) pio device monitor -d $(PROJECT)

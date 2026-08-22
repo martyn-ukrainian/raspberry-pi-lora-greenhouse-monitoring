@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <SSD1306Wire.h>
+#include <esp_system.h>
 
 // Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262)
 #define MAX_NODES 3
@@ -22,8 +23,41 @@
 // пропущеним пакетом.
 #define CONNECTION_TIMEOUT_MS 10000
 
+// ---------------------------------------------------------------------------
+// Події шлюза
+// ---------------------------------------------------------------------------
+// Шлюз сидить на USB Pi, тож постійна пам'ять йому не потрібна — його "диск"
+// це сервер. Але Serial.printf() з вільним текстом там осідав як
+// "Skipping malformed packet" (usb_adapter.py), тобто справжній збій радіо
+// маскувався під сміття в порту. Тому збої йдуть тим самим NDJSON, що й
+// виміри, просто з type="event".
+//
+// Нумерація кодів своя, не спільна з вузлом — тому й node_id окремий.
+// Serial тут — НЕ лог, а канал даних на Pi, тому його не можна відключати
+// прапорцем збірки, як у вузлі. Натомість у потоці не має бути жодного
+// вільного тексту: усе, що не NDJSON, adapter відкидає як сміття. Саме тому
+// замість Serial.println("LoRa init OK") тут подія з кодом.
+#define GW_NODE_ID        255
+#define GWEV_LORA_INIT    1
+#define GWEV_RX_FAIL      2   // detail = код RadioLib
+#define GWEV_CRC_BURST    3   // detail = скільки битих пакетів усього
+#define GWEV_BOOT         4   // detail = esp_reset_reason()
+
+// CRC-mismatch — рядове явище в ефірі, по події на кожен залив би лог. Але
+// повністю ковтати його теж не можна: саме темп їх появи показує, що зв'язок
+// сиплеться. Компроміс — рахувати, а доповідати пачками.
+#define CRC_REPORT_EVERY 10
+
 SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
 SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
+
+unsigned long crcErrors = 0;
+
+void emitEvent(int code, int detail) {
+  Serial.printf("{\"type\":\"event\",\"node_id\":%d,\"code\":%d,\"detail\":%d}\n",
+                GW_NODE_ID, code, detail);
+}
+
 void powerOnVext() {
   pinMode(VEXT_CTRL, OUTPUT);
   digitalWrite(VEXT_CTRL, LOW);
@@ -88,10 +122,13 @@ void setup() {
   int state = radio.begin(868.0);
 
   if (state == RADIOLIB_ERR_NONE) {
-    Serial.println("LoRa init OK (868 MHz)");
+    // Шлюз живиться від Pi і мовчки перезавантажується (просадка по USB,
+    // випав кабель) — а зовні це виглядає лише як провал у даних. Подія на
+    // старті робить рестарт видимим, і detail одразу каже, від чого він був.
+    emitEvent(GWEV_BOOT, esp_reset_reason());
     showStatus("LoRa: OK", "868 MHz");
   } else {
-    Serial.printf("LoRa init failed, code %d\n", state);
+    emitEvent(GWEV_LORA_INIT, state);
     showStatus("LoRa: FAIL", "code " + String(state));
   }
 
@@ -195,8 +232,13 @@ void loop() {
       float snr = radio.getSNR();
       reportReceived(received, rssi, snr);
       updateLastSeen(received, rssi, snr);
-    } else if (state != RADIOLIB_ERR_CRC_MISMATCH) {
-      Serial.printf("Receive failed, code %d\n", state);
+    } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
+      crcErrors++;
+      if (crcErrors % CRC_REPORT_EVERY == 0) {
+        emitEvent(GWEV_CRC_BURST, crcErrors);
+      }
+    } else {
+      emitEvent(GWEV_RX_FAIL, state);
     }
 
     radio.startReceive();

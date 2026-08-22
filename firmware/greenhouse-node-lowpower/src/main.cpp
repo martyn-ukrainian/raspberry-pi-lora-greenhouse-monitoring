@@ -1,0 +1,588 @@
+// Енергозберігаючий вузол теплиці: прокинувся -> зміряв -> передав -> заснув.
+//
+// Відмінність від `greenhouse-node` (стендової прошивки) — там `loop()` крутиться
+// без зупину з `delay(1000)`, і плата їсть ~79 мА, тобто ~1,6 доби від 18650.
+// Тут вся робота живе в `setup()`: після передачі плата йде в deep sleep, і
+// прокидається вже через reset. `loop()` не викликається ніколи.
+// Розрахунки й перелік проблем — docs/power-budget.md.
+//
+// Інтервал сну задається на збірці (-DSLEEP_MINUTES), не в коді — див.
+// platformio.ini. 5 хв ≈ 7,6 міс, 15 хв ≈ 12 міс від 3400 мАг.
+//
+// ВАЖЛИВО: прошивка розрахована на те, що VCC ґрунтових сенсорів перепаяно
+// з постійних 3V3 на `Ve` (J2 pin 3/4, керується Vext_Ctrl). Без цієї
+// перепайки сенсори їдять свої 15 мА цілодобово, і стеля ресурсу — 8 діб,
+// скільки б плата не спала. Деталі — README.md поруч.
+
+#include <Arduino.h>
+#include <RadioLib.h>
+#include <SSD1306Wire.h>
+#include <Adafruit_SHT31.h>
+#include <esp_sleep.h>
+#include <esp_system.h>
+
+#ifndef SLEEP_MINUTES
+#define SLEEP_MINUTES 15
+#endif
+
+#define NODE_ID    0
+
+// Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262) — той самий, що в
+// greenhouse-node, плюс два піни батареї.
+#define LORA_NSS   8
+#define LORA_SCK   9
+#define LORA_MOSI  10
+#define LORA_MISO  11
+#define LORA_RST   12
+#define LORA_BUSY  13
+#define LORA_DIO1  14
+
+#define OLED_SDA   17
+#define OLED_SCL   18
+#define OLED_RST   21
+#define VEXT_CTRL  36
+
+#define SOIL_1     2
+#define SOIL_2     3
+#define SOIL_3     4
+
+// Скільки ґрунтових сенсорів реально підключено. Число має відповідати
+// залізу, а не планам: непідключений ADC-пін не читає "нуль" — він висить і
+// віддає шум. Медіана з (реальне, шум, шум) повертає реальне значення лише
+// тоді, коли воно випадково опинилось посередині, тобто приблизно в половині
+// випадків. Зайвий сенсор у цій константі — це не запас, а зіпсований замір.
+#define SOIL_SENSOR_COUNT 1
+
+#if SOIL_SENSOR_COUNT != 1 && SOIL_SENSOR_COUNT != 3
+#error "SOIL_SENSOR_COUNT: підтримується 1 (одиничний замір) або 3 (медіана)"
+#endif
+
+const int SOIL_PINS[3] = {SOIL_1, SOIL_2, SOIL_3};
+
+#define AIR_SDA    41
+#define AIR_SCL    42
+
+// Вбудований дільник вимірювання батареї: GPIO37 вмикає його (LOW = on),
+// GPIO1 читає. Тримати дільник увімкненим постійно не можна — він сам
+// висаджує батарею.
+#define VBAT_ADC   1
+#define VBAT_CTRL  37
+
+// Коефіцієнт дільника VBAT. Номінал для V3 — 4.9; звірити мультиметром на
+// реальній платі (див. README, розділ "Калібрування VBAT").
+#define VBAT_DIVIDER 4.9f
+
+// Ємнісний сенсор віддає не частоту, а постійну напругу з піковим детектором —
+// і саме конденсатор цього детектора треба зарядити після подачі живлення.
+// Сам NE555/TLC555 стартує за мілісекунди, а от вихід виходить на полицю
+// значно довше: у практиці називають від ~1 с до "пари секунд", хтось ставить
+// 8 с із запасом.
+//
+// Поки крива виходу не заміряна на своїх платах — стоїть 10 с, тобто з
+// покриттям усього діапазону чужих рекомендацій. Це свідома переплата за
+// незнання: проти 2 с вона коштує ~47% ресурсу (8,7 -> 4,6 міс на 15 хв).
+// Знімається одним прогоном env lowpower_probe (див. README) — після нього
+// тут має стояти заміряне число, а не запас.
+//
+// Увага: з інтервалом 5 хв 10 с прогріву — вже погана комбінація (вікно
+// з'їдає 3,3% періоду, ресурс падає до ~2 міс). 10 с має сенс на 15 хв.
+#define SOIL_WARMUP_MS 10000
+
+// Скільки тримати картинку на OLED після ручного ресету (людина в теплиці
+// натиснула RESET, щоб подивитись значення). При прокиданні по таймеру OLED
+// не вмикається взагалі.
+#define OLED_ON_MS 5000
+
+// Кожне прокидання — свіжий boot, тож SHT31 щоразу проходить ту саму
+// "притирку", через яку в журналі ловили NAN у перші цикли після ресету.
+// Тому читаємо з повторами, а не один раз.
+#define SHT_RETRIES 3
+#define SHT_RETRY_DELAY_MS 150
+
+// ---------------------------------------------------------------------------
+// Serial: діагностика, якої в бойовій прошивці нема
+// ---------------------------------------------------------------------------
+// У теплиці USB не підключений, тож кожен printf — чиста трата: форматний
+// рядок займає місце у flash, символи виштовхуються в UART по ~87 мкс на
+// кожен, а Serial.flush() перед сном ще й БЛОКУЄ, доки буфер не спорожніє.
+// Без -DAGRO_DEBUG_SERIAL макроси розкриваються в ніщо: аргументи не обчислюються
+// (тобто зникає й конкатенація String, яка інакше щоцикл лізла в купу), а
+// самі рядки не потрапляють у прошивку.
+//
+// Увімкнути для налагодження, не чіпаючи код:
+//   PLATFORMIO_BUILD_FLAGS=-DAGRO_DEBUG_SERIAL make build \
+//       PROJECT=greenhouse-node-lowpower PIO_ENV=lowpower_15min
+//
+// Префікс AGRO_ не косметичний: Adafruit BusIO має власний макрос
+// DEBUG_SERIAL, який розкривається в сам об'єкт Serial. Наш -DDEBUG_SERIAL
+// перетирав його одиницею, і бібліотека переставала збиратись на
+// `1.print(...)`. Прапорці збірки живуть у спільному просторі імен з усіма
+// залежностями — звідси префікс.
+//
+// Спільного заголовка на три прошивки свідомо нема: docker-compose монтує
+// кожен проєкт окремо як /project, а deploy-gateway rsync-ає тільки gateway/,
+// тож файл поза каталогом проєкту зламав би і збірку в контейнері, і заливку
+// на Pi. Дублювання тут дешевше за таку зв'язність.
+
+// Діагностичне середовище існує рівно заради свого CSV — хай друкує навіть
+// якщо забули дописати другий прапорець.
+#if defined(SOIL_WARMUP_PROBE) && !defined(AGRO_DEBUG_SERIAL)
+#define AGRO_DEBUG_SERIAL
+#endif
+
+#ifdef AGRO_DEBUG_SERIAL
+#define LOG_BEGIN() Serial.begin(115200)
+#define LOG(...)    Serial.printf(__VA_ARGS__)
+#define LOG_LN(x)   Serial.println(x)
+#define LOG_FLUSH() Serial.flush()
+#else
+// Аргументи навмисно не обчислюються — саме тому в LOG() не можна класти
+// нічого, крім читання вже готових значень.
+#define LOG_BEGIN() ((void)0)
+#define LOG(...)    ((void)0)
+#define LOG_LN(x)   ((void)0)
+#define LOG_FLUSH() ((void)0)
+#endif
+
+// ---------------------------------------------------------------------------
+// Журнал подій
+// ---------------------------------------------------------------------------
+// Вузол не має куди писати лог: Serial у теплиці нікуди не підключений, а
+// flash (NVS) при 15 хв — це 35 тис. прокидань на рік, тобто знос сектора і
+// десятки мс на 40 мА щоцикл, дорожче за сам вимір. Тому журнал живе в
+// RTC-пам'яті (це просто RAM, яка живиться і в deep sleep — 0 мкДж, 0 зносу),
+// а архів тримає сервер, де вже є 14-денна ротація.
+//
+// Слот — рівно 64 байти з 8 КБ RTC. Два представлення тих самих подій:
+//   errFlags — липкий бітмаск, чиститься ЛИШЕ після вдалої передачі; переживає
+//              скільки завгодно невдалих спроб, тому нічого не губиться;
+//   ring     — останні 24 події з номером boot, для розбору з платою в руках.
+//
+// RTC_NOINIT_ATTR (а не RTC_DATA_ATTR) — щоб слот переживав ще й panic та
+// watchdog-ресет, а не тільки deep sleep. Ціна — сміття після подачі
+// живлення, звідси magic.
+
+#define EV_NONE           0
+#define EV_COLD_BOOT      1   // RTC-пам'ять була порожня: перше вмикання або
+                              // повна втрата живлення (заміна батареї)
+#define EV_RST_BROWNOUT   2   // просадка живлення — головний підозрюваний при
+                              // старій комірці на морозі
+#define EV_RST_PANIC      3
+#define EV_RST_WDT        4
+#define EV_LORA_INIT_FAIL 5
+#define EV_LORA_TX_FAIL   6
+#define EV_I2C_FAIL       7   // sht31.begin() не побачив сенсор на шині
+#define EV_SHT_NAN        8   // сенсор на шині, але не віддає число
+#define EV_SOIL_RANGE     9   // сире ADC поза правдоподібним діапазоном:
+                              // обрив або КЗ ґрунтового сенсора
+#define EV_VBAT_LOW       10
+#define EV_VBAT_CRITICAL  11
+// 12-15 вільні — код займає 4 біти в записі кільця
+
+#define EVENT_RING_SIZE 24
+#define RTC_LOG_MAGIC   0x41475230UL  // "AGR0"
+
+// Плата гасне вже на ~3,4 В на банці (лінійний регулятор — див.
+// docs/power-budget.md), тому CRITICAL ставимо трохи вище цієї межі, щоб
+// встигнути отримати попередження, а не тишу.
+#define VBAT_LOW_V      3.50f
+#define VBAT_CRITICAL_V 3.35f
+
+// 12-бітний ADC дає 0..4095. Відключений сенсор плаває під стелею, замкнутий
+// лежить на нулі — і те, і те map() слухняно перетворить у правдоподібний
+// відсоток. Межі свідомо ширші за робочий діапазон (1200..3000): ловимо
+// поламане залізо, а не сухий чи мокрий ґрунт.
+#define SOIL_RAW_MIN 300
+#define SOIL_RAW_MAX 3800
+
+RTC_NOINIT_ATTR struct {
+  uint32_t magic;
+  uint32_t bootCount;
+  uint32_t errFlags;                // 1 << EV_*, липкий до вдалої передачі
+  uint16_t errSeq;                  // одометр подій, не скидається ніколи
+  uint16_t ring[EVENT_RING_SIZE];   // code(4 біти) | bootCount(12 бітів)
+  uint8_t  head;
+} rtcLog;
+
+// Слот має лишатись рівно 64 байти: додаси поле — або зменш кільце, або
+// свідомо перепиши цю цифру, а не дізнавайся про ріст випадково.
+static_assert(sizeof(rtcLog) == 64, "RTC event log slot must stay 64 bytes");
+
+// Запис у RAM — нічого не чекає, нічого не блокує. Рядок у Serial є лише в
+// діагностичній збірці; у бойовій подія живе тільки в RTC і в ефірі.
+void logEvent(uint8_t code) {
+  rtcLog.errFlags |= (1UL << code);
+  rtcLog.errSeq++;
+  rtcLog.ring[rtcLog.head] =
+      ((uint16_t)code << 12) | (uint16_t)(rtcLog.bootCount & 0x0FFF);
+  rtcLog.head = (rtcLog.head + 1) % EVENT_RING_SIZE;
+
+  LOG("EV %u @boot %lu\n", code, rtcLog.bootCount);
+}
+
+void initEventLog() {
+  if (rtcLog.magic != RTC_LOG_MAGIC) {
+    memset(&rtcLog, 0, sizeof(rtcLog));
+    rtcLog.magic = RTC_LOG_MAGIC;
+    rtcLog.bootCount = 1;
+    logEvent(EV_COLD_BOOT);
+    return;
+  }
+  rtcLog.bootCount++;
+}
+
+// Причина попереднього ресету лежить в апаратному регістрі й переживає навіть
+// те, що стирає RTC-пам'ять. Саме тому brownout ловиться без flash.
+void logResetReason() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_BROWNOUT:
+      logEvent(EV_RST_BROWNOUT);
+      break;
+    case ESP_RST_PANIC:
+      logEvent(EV_RST_PANIC);
+      break;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+      logEvent(EV_RST_WDT);
+      break;
+    default:
+      break;  // POWERON / DEEPSLEEP / SW — рутина, не подія
+  }
+}
+
+SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
+SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
+
+TwoWire airWire = TwoWire(1);
+Adafruit_SHT31 sht31 = Adafruit_SHT31(&airWire);
+
+// Момент подачі Vext — від нього рахується прогрів сенсорів. Ініціалізація
+// I2C/SPI/радіо все одно займає свій час, тож прогрів іде паралельно з нею,
+// а не додається зверху.
+unsigned long vextOnAtMs = 0;
+
+void powerOnVext() {
+  pinMode(VEXT_CTRL, OUTPUT);
+  digitalWrite(VEXT_CTRL, LOW);  // LOW = живлення подано
+  vextOnAtMs = millis();
+}
+
+void waitForSoilWarmup() {
+  unsigned long elapsed = millis() - vextOnAtMs;
+  if (elapsed < SOIL_WARMUP_MS) {
+    delay(SOIL_WARMUP_MS - elapsed);
+  }
+}
+
+void powerOffVext() {
+  digitalWrite(VEXT_CTRL, HIGH);
+}
+
+void resetDisplay() {
+  pinMode(OLED_RST, OUTPUT);
+  digitalWrite(OLED_RST, LOW);
+  delay(20);
+  digitalWrite(OLED_RST, HIGH);
+}
+
+// Прокидання по таймеру — це рутинний цикл у порожній теплиці, там дивитись
+// на екран нікому. Показуємо тільки коли людина сама натиснула RESET або
+// щойно подала живлення.
+bool wokeFromTimer() {
+  return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER;
+}
+
+float readBatteryVolts() {
+  pinMode(VBAT_CTRL, OUTPUT);
+  digitalWrite(VBAT_CTRL, LOW);
+  delay(10);
+
+  analogSetPinAttenuation(VBAT_ADC, ADC_11db);
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; i++) {
+    mv += analogReadMilliVolts(VBAT_ADC);
+  }
+  mv /= 8;
+
+  digitalWrite(VBAT_CTRL, HIGH);  // дільник назад у вимкнений стан
+
+  float volts = (mv * VBAT_DIVIDER) / 1000.0f;
+  if (volts < VBAT_CRITICAL_V) {
+    logEvent(EV_VBAT_CRITICAL);
+  } else if (volts < VBAT_LOW_V) {
+    logEvent(EV_VBAT_LOW);
+  }
+  return volts;
+}
+
+int medianOf3(int a, int b, int c) {
+  if (a > b) { int t = a; a = b; b = t; }
+  if (b > c) { int t = b; b = c; c = t; }
+  if (a > b) { int t = a; a = b; b = t; }
+  return b;
+}
+
+int soilRawToPercent(int humSoil) {
+  // Те саме грубе перетворення, що в greenhouse-node — без реального
+  // калібрування. Міняти тут і там синхронно, поки не винесено в спільне.
+  int soilPercent = map(humSoil, 3000, 1200, 0, 100);
+  return constrain(soilPercent, 0, 100);
+}
+
+// Останній сирий медіанний замір — щоб A/B-режим міг узяти його, не роблячи
+// зайвого читання поверх штатного.
+int lastSoilRaw = 0;
+
+// Сирий медіанний замір, окремо від перетворення у відсотки — щоб A/B-режим
+// міг зняти його двічі за цикл на різних відмітках прогріву.
+int readSoilRawMedian() {
+  int v[3] = {0, 0, 0};
+
+  // Перший вимір після старту ADC регулярно виходить кривим (мультиплексор і
+  // схема вибірки ще не встоялись) — стандартний обхід: прочитати й викинути.
+  for (int i = 0; i < SOIL_SENSOR_COUNT; i++) {
+    analogRead(SOIL_PINS[i]);
+  }
+  for (int i = 0; i < SOIL_SENSOR_COUNT; i++) {
+    v[i] = analogRead(SOIL_PINS[i]);
+  }
+
+  // Сирі значення в Serial — без них калібрування наосліп: у percent вже
+  // втрачено те, що потрібно для підбору меж у soilRawToPercent().
+#if SOIL_SENSOR_COUNT == 3
+  LOG("soil raw: %d %d %d\n", v[0], v[1], v[2]);
+  lastSoilRaw = medianOf3(v[0], v[1], v[2]);
+#else
+  LOG("soil raw: %d\n", v[0]);
+  lastSoilRaw = v[0];
+#endif
+  return lastSoilRaw;
+}
+
+int readSoilPercent() {
+  int raw = readSoilRawMedian();
+  // Медіана з трьох переживе один відпалий сенсор мовчки — і саме тому обрив
+  // треба ловити окремо, інакше він ніколи не спливе.
+  if (raw < SOIL_RAW_MIN || raw > SOIL_RAW_MAX) {
+    logEvent(EV_SOIL_RANGE);
+  }
+  return soilRawToPercent(raw);
+}
+
+#ifdef SOIL_WARMUP_PROBE
+// Діагностика, не бойовий режим: малює криву виходу сенсора після подачі
+// живлення, щоб побачити, за скільки він реально виходить на полицю, і
+// підібрати SOIL_WARMUP_MS під свої плати замість загального 2 с.
+//
+// Вікно за замовчуванням 60 с — навмисне довге, бо саме воно і є відповіддю
+// на питання "чи не варто працювати хвилину замість двох секунд". Якщо крива
+// лягає на полицю за пару секунд — довге вікно не додає нічого, крім витрати
+// батареї. Якщо повзе далі (наприклад, 555 гріється власним струмом і
+// дрейфує) — значить довге вікно справді потрібне. Вирішує форма кривої,
+// не аргумент.
+void probeSoilWarmup() {
+  LOG_LN("ms,s1,s2,s3");
+  unsigned long until = vextOnAtMs + (unsigned long)SOIL_WARMUP_PROBE * 1000UL;
+  while ((long)(millis() - until) < 0) {
+    LOG("%lu,%d,%d,%d\n", millis() - vextOnAtMs, analogRead(SOIL_1),
+        analogRead(SOIL_2), analogRead(SOIL_3));
+    delay(250);
+  }
+}
+#endif
+
+#ifdef SOIL_AB_TEST
+// Парне порівняння двох стратегій в одному циклі: замір на SOIL_WARMUP_MS і
+// повторний на SOIL_AB_TEST секунді, той самий ґрунт, та сама температура,
+// та сама плата. Це сильніше за порівняння двох вузлів поруч — там різниця
+// сенсорів і місця в горщику змішалась би з різницею методів.
+int soilFastRaw = 0;
+int soilSlowRaw = 0;
+
+void readSoilSlow() {
+  unsigned long until = vextOnAtMs + (unsigned long)SOIL_AB_TEST * 1000UL;
+  while ((long)(millis() - until) < 0) {
+    delay(100);
+  }
+  soilSlowRaw = readSoilRawMedian();
+}
+#endif
+
+// true — прочитали; false — сенсор мовчить, значення лишаються нулями.
+bool readAir(float &airTemp, float &airHum) {
+  for (int attempt = 0; attempt < SHT_RETRIES; attempt++) {
+    airTemp = sht31.readTemperature();
+    airHum = sht31.readHumidity();
+
+    if (!isnan(airTemp) && !isnan(airHum)) {
+      return true;
+    }
+    delay(SHT_RETRY_DELAY_MS);
+  }
+
+  // Раніше тут стояло airTemp = airHum = 0, і нулі йшли в ефір як звичайний
+  // вимір: сервер писав 0.0 °C у базу і будував на них алерти. Тепер полів
+  // просто нема в пакеті — "не знаємо" це не "нуль".
+  LOG_LN("SHT31 read failed (NAN) after retries");
+  logEvent(EV_SHT_NAN);
+  return false;
+}
+
+// Формат лишається тим самим JSON, що й у greenhouse-node — gateway його
+// парсить як є. Додані vbat/boot шлюз просто перекладе далі, а сервер
+// (pydantic, extra="ignore") пропустить повз — див. README, "Сумісність".
+//
+// err/eseq додаються ТІЛЬКИ коли є що сказати: у здоровому циклі пакет не росте
+// ні на байт. Навіть якби ріс — 10 байт це ~74 мс ефіру, ~0,02 мАг на добу з
+// 3000, тобто не ефір тут вузьке місце (див. docs/power-budget.md).
+String buildTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
+                      float vbat) {
+  String json = "{\"type\":\"measurement\",\"node_id\":" + String(NODE_ID);
+
+  // Немає полів = немає даних. Приймальний бік відрізнить це від нуля.
+  if (airOk) {
+    json += ",\"air_temperature\":" + String(airTemp, 1);
+    json += ",\"air_humidity\":" + String(airHum, 1);
+  }
+
+  json += ",\"soil_moisture\":" + String(soilPercent);
+  json += ",\"vbat\":" + String(vbat, 2);
+  json += ",\"boot\":" + String(rtcLog.bootCount);
+
+  if (rtcLog.errFlags != 0) {
+    json += ",\"err\":" + String(rtcLog.errFlags);
+    json += ",\"eseq\":" + String(rtcLog.errSeq);
+  }
+
+#ifdef SOIL_AB_TEST
+  json += ",\"soil_fast\":" + String(soilFastRaw);
+  json += ",\"soil_slow\":" + String(soilSlowRaw);
+  json += ",\"warm_fast_ms\":" + String(SOIL_WARMUP_MS);
+  json += ",\"warm_slow_ms\":" + String((unsigned long)SOIL_AB_TEST * 1000UL);
+#endif
+
+  json += "}";
+  return json;
+}
+
+void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
+                   float vbat) {
+  resetDisplay();
+  display.init();
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+
+  display.clear();
+  display.drawString(0, 0, "AIR TEMP: " + (airOk ? String(airTemp, 1) + "C" : "--"));
+  display.drawString(0, 12, "AIR HUM: " + (airOk ? String(airHum, 1) + "%" : "--"));
+  display.drawString(0, 24, "SOIL: " + String(soilPercent) + "%");
+  display.drawString(0, 36, "BAT: " + String(vbat, 2) + "V");
+
+  // Людина стоїть біля плати з ліхтариком саме тоді, коли щось не так —
+  // хай бачить, чи є непередані помилки, не чекаючи серверу.
+  if (rtcLog.errFlags != 0) {
+    display.drawString(0, 48, "ERR: 0x" + String(rtcLog.errFlags, HEX));
+  } else {
+    display.drawString(0, 48, "SLEEP: " + String(SLEEP_MINUTES) + " min");
+  }
+  display.display();
+
+  delay(OLED_ON_MS);
+  display.displayOff();
+}
+
+void enterDeepSleep() {
+  // Порядок важливий: спершу приспати радіо, потім зняти Vext. SX1262 у
+  // standby їсть ~1,5 мА — це в 30 разів більше за сплячий ESP32, тобто без
+  // цього рядка весь сенс прошивки зникає.
+  radio.sleep();
+  powerOffVext();
+
+  LOG("Sleeping %d min\n", SLEEP_MINUTES);
+  LOG_FLUSH();
+
+  esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL);
+  esp_deep_sleep_start();
+  // сюди виконання не повертається — наступний рядок буде вже `setup()`
+}
+
+void setup() {
+  // 240 МГц тут нема на чому витрачати: вся робота — це чекання сенсорів і
+  // ефіру. На 80 МГц активне споживання ядра помітно менше, а час циклу
+  // майже не росте.
+  setCpuFrequencyMhz(80);
+
+  LOG_BEGIN();
+
+  // Спершу журнал — інакше перші ж logEvent() (холодний старт, brownout)
+  // писали б у неініціалізований слот.
+  initEventLog();
+  logResetReason();
+
+  // Vext живить і OLED, і (після перепайки) ґрунтові сенсори — вмикаємо на
+  // час замірів і знімаємо перед сном.
+  powerOnVext();
+
+  pinMode(AIR_SDA, INPUT_PULLUP);
+  pinMode(AIR_SCL, INPUT_PULLUP);
+  airWire.begin(AIR_SDA, AIR_SCL);
+  if (!sht31.begin(0x44)) {
+    // Сенсора нема на шині взагалі — інша поломка, ніж NAN при читанні
+    // (обрив шлейфа проти збою самого сенсора), тому й код інший.
+    logEvent(EV_I2C_FAIL);
+  }
+
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+  int radioState = radio.begin(868.0);
+  if (radioState != RADIOLIB_ERR_NONE) {
+    // Радіо не піднялось — не крутимось з увімкненим живленням, а йдемо
+    // спати до наступного циклу: інакше один збій з'їдає всю батарею.
+    LOG("LoRa init failed, code %d\n", radioState);
+    logEvent(EV_LORA_INIT_FAIL);
+    enterDeepSleep();
+  }
+
+#ifdef SOIL_WARMUP_PROBE
+  probeSoilWarmup();
+#endif
+
+  waitForSoilWarmup();
+
+  int soilPercent = readSoilPercent();
+
+#ifdef SOIL_AB_TEST
+  // Штатний (швидкий) замір уже зроблено — він і лишається soil_moisture,
+  // щоб бойовий тракт не змінювався. Далі тримаємо живлення й знімаємо
+  // другий, повільний, для порівняння.
+  soilFastRaw = lastSoilRaw;
+  readSoilSlow();
+#endif
+
+  float airTemp = 0, airHum = 0;
+  bool airOk = readAir(airTemp, airHum);
+  float vbat = readBatteryVolts();
+
+  String msg = buildTelemetry(soilPercent, airOk, airTemp, airHum, vbat);
+  int txState = radio.transmit(msg);
+
+  if (txState == RADIOLIB_ERR_NONE) {
+    // Прапорці доїхали — тільки тепер їх можна гасити. Одометр errSeq
+    // лишається рости, щоб сервер бачив повтори тієї самої помилки.
+    rtcLog.errFlags = 0;
+    LOG_LN("Sent! " + msg);
+  } else {
+    LOG("Send failed, code %d\n", txState);
+    logEvent(EV_LORA_TX_FAIL);
+  }
+
+  if (!wokeFromTimer()) {
+    showTelemetry(soilPercent, airOk, airTemp, airHum, vbat);
+  }
+
+  enterDeepSleep();
+}
+
+void loop() {
+  // Не викликається: setup() завжди завершується deep sleep-ом.
+}
