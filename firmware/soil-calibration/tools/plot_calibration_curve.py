@@ -139,14 +139,14 @@ def main() -> None:
         curve = PchipInterpolator(waters, mv)
         dense_x = [waters[0] + (waters[-1] - waters[0]) * i / 299 for i in range(300)]
         dense_y = curve(dense_x)
-        ax.plot(dense_x, dense_y, color="#2a7f62", linewidth=2, label="settled")
+        ax.plot(dense_x, dense_y, color="#2a7f62", linewidth=2, label="settled soil moisture reading")
         ax.plot(waters, mv, marker="o", color="#2a7f62", linewidth=0, markersize=7)
     else:
-        ax.plot(waters, mv, marker="o", color="#2a7f62", linewidth=2, markersize=7, label="settled")
+        ax.plot(waters, mv, marker="o", color="#2a7f62", linewidth=2, markersize=7, label="settled soil moisture reading")
 
     for w, v in zip(waters, mv, strict=True):
         ax.annotate(f"{w:.0f} mL", xy=(w, v), textcoords="offset points",
-                    xytext=(0, 10), ha="center", fontsize=8, color="#555555")
+                    xytext=(0, 16), ha="center", fontsize=8, color="#555555")
 
     if live_ml is not None:
         ax.plot(live_ml, live_mv, marker="o", markersize=10, markerfacecolor="none",
