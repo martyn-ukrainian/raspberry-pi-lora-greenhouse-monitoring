@@ -13,7 +13,7 @@ Architecture and the wire protocol are described in [`docs/greenhouse_architectu
 
 ## Pinout
 
-![Heltec WiFi LoRa 32 V3 pinout](schema.png)
+![Heltec WiFi LoRa 32 V3 pinout](schema.jpg)
 
 The board has two headers, J3 (left) and J2 (right). LoRa (SX1262) and the
 OLED are wired to fixed internal pins; the free ADC1 pins on J3 carry the
