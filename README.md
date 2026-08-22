@@ -28,6 +28,15 @@ Measured in a small 1 kg soil bucket, water added in 50 mL increments, sensor ou
 
 ![v2.0 calibration curve: water added (mL) vs sensor output (mV)](firmware/soil-calibration/data/calibration_curve.png)
 
+Each successive water addition moves the reading less than the last — the sensor saturates. Modeled as geometric decay of the per-step delta:
+
+```
+mV(V) = mV_last + Δ_last · r^((V − V_last) / step)        r = Δ_last / Δ_prev
+d(mV)/dV = (Δ_last · ln r / step) · r^((V − V_last) / step)    (sensitivity, mV per mL)
+```
+
+Measured on `v20a`: `r ≈ 0.28` — each next step does roughly 28% of the previous one's work. The first 50 mL after dry soil moves the reading ~185× harder than the last 150 mL.
+
 Full numbers and method — [`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
 
 ## Architecture
