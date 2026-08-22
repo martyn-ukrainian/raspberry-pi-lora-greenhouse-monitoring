@@ -146,7 +146,7 @@ def main() -> None:
 
     for w, v in zip(waters, mv, strict=True):
         ax.annotate(f"{w:.0f} mL", xy=(w, v), textcoords="offset points",
-                    xytext=(0, 16), ha="center", fontsize=8, color="#555555")
+                    xytext=(0, 22), ha="center", fontsize=8, color="#555555")
 
     if live_ml is not None:
         ax.plot(live_ml, live_mv, marker="o", markersize=10, markerfacecolor="none",

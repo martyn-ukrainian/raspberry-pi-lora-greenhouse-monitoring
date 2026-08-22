@@ -35,7 +35,7 @@ mV(V) = mV_last + Δ_last · r^((V − V_last) / step)        r = Δ_last / Δ_p
 d(mV)/dV = (Δ_last · ln r / step) · r^((V − V_last) / step)    (sensitivity, mV per mL)
 ```
 
-Measured on `v20a`: `r ≈ 0.28` — each next step does roughly 28% of the previous one's work. The first 50 mL after dry soil moves the reading ~185× harder than the last 150 mL.
+Measured on `v20a`: `r ≈ 0.35` — the next equal-size (50 mL) step does roughly 35% of the previous one's work. The first clean 50 mL step moves the reading ~35× harder per mL than the last 150 mL step.
 
 Full numbers and method — [`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
 
