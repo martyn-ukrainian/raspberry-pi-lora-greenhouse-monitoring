@@ -31,6 +31,11 @@ except ImportError:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--csv", type=Path, help="CSV від soil_log.py; без нього — ілюстративні дані")
+    parser.add_argument(
+        "--points",
+        help="реальні усталені пари 'мл:мВ,мл:мВ,...' (наприклад '0:2409,50:1018,100:924,150:898') — "
+             "малює точно ці точки, без CSV і без ілюстративної кривої",
+    )
     parser.add_argument("--sensor", default="v20a", help="мітка сенсора (v12a/v12b/v20a/v20b), типово v20a")
     parser.add_argument("--tail", type=float, default=60.0, help="хвіст кроку в секундах (як у soil_summary.py)")
     parser.add_argument("--dry-mv", type=float, default=2400.0, help="ілюстративний режим: сухий кінець (water=0)")
@@ -90,7 +95,13 @@ def measured_data(csv_path: Path, sensor: str, tail: float) -> tuple[list[float]
 def main() -> None:
     args = parse_args()
 
-    if args.csv:
+    if args.points:
+        pairs = sorted(
+            (float(ml), float(mv)) for ml, mv in (p.split(":") for p in args.points.split(","))
+        )
+        waters, mv = [p[0] for p in pairs], [p[1] for p in pairs]
+        title = f"{args.sensor} — calibration curve (measured, settled R15 points)"
+    elif args.csv:
         waters, mv = measured_data(args.csv, args.sensor, args.tail)
         title = f"{args.sensor} — calibration curve (measured, {args.csv.name})"
     else:
