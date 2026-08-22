@@ -50,6 +50,15 @@ def parse_args() -> argparse.Namespace:
         "--live-point",
         help="точка, що ще пишеться й не всілась: 'мл,мВ' (наприклад '150,876'), малюється окремо",
     )
+    parser.add_argument(
+        "--project",
+        type=int,
+        default=0,
+        help="скільки ГІПОТЕТИЧНИХ точок домалювати за останньою (пунктиром, не замір) — "
+             "екстраполяція геометричним спаданням дельти, узятим з останніх двох реальних кроків",
+    )
+    parser.add_argument("--project-ratio", type=float, help="коефіцієнт спадання дельти; типово рахується з даних")
+    parser.add_argument("--project-step", type=float, help="крок мл для проекції; типово як останній реальний крок")
     parser.add_argument("--live-label", default="ще пишеться", help="підпис для --live-point")
     parser.add_argument("--out", type=Path, default=Path(__file__).resolve().parent.parent / "data" / "calibration_curve.png")
     return parser.parse_args()
@@ -144,14 +153,50 @@ def main() -> None:
                  markeredgecolor="#d17a1f", markeredgewidth=2, linestyle="none", label=args.live_label)
         ax.annotate(f"{live_ml:.0f} mL, {args.live_label}", (live_ml, live_mv),
                     textcoords="offset points", xytext=(10, -14), ha="left", fontsize=8, color="#d17a1f")
-        ax.legend(loc="upper right", fontsize=8)
+
+    proj_x: list[float] = []
+    if args.project > 0:
+        # Спадання дельти між останніми двома реальними кроками — те саме
+        # насичення, яке видно на кожному кроці кривої (кожен наступний
+        # долив рухає показник дедалі менше). Продовжуємо той самий темп
+        # ГІПОТЕТИЧНО, не заміром — тому пунктир і окремий колір.
+        if len(waters) >= 3:
+            d_last = mv[-1] - mv[-2]
+            d_prev = mv[-2] - mv[-3]
+            ratio = args.project_ratio if args.project_ratio is not None else (
+                d_last / d_prev if d_prev else 0.3
+            )
+        else:
+            d_last = -30.0
+            ratio = args.project_ratio if args.project_ratio is not None else 0.3
+        step = args.project_step if args.project_step is not None else (
+            waters[-1] - waters[-2] if len(waters) >= 2 else 50.0
+        )
+
+        start_x = live_ml if live_ml is not None else waters[-1]
+        start_y = live_mv if live_mv is not None else mv[-1]
+        proj_x = [start_x]
+        proj_y = [start_y]
+        delta = d_last
+        for _ in range(args.project):
+            delta *= ratio
+            proj_x.append(proj_x[-1] + step)
+            proj_y.append(proj_y[-1] + delta)
+
+        ax.plot(proj_x, proj_y, linestyle="--", color="#999999", linewidth=1.5,
+                 marker="o", markersize=5, markerfacecolor="none", label="projected (hypothetical)")
+        for w, v in zip(proj_x[1:], proj_y[1:], strict=True):
+            ax.annotate(f"{w:.0f} mL?", xy=(w, v), textcoords="offset points",
+                        xytext=(0, -14), ha="center", fontsize=7, color="#999999")
 
     ax.set_xlabel("Water added, cumulative (mL)")
     ax.set_ylabel("Sensor output (mV)")
     ax.set_title(title, fontsize=11)
     ax.grid(True, linestyle="--", alpha=0.4)
-    all_ticks = sorted(set(waters) | ({live_ml} if live_ml is not None else set()))
+    all_ticks = sorted(set(waters) | ({live_ml} if live_ml is not None else set()) | set(proj_x))
     ax.set_xticks(all_ticks)
+    if ax.get_legend_handles_labels()[1]:
+        ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
