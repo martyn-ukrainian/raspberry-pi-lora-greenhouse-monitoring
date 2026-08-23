@@ -71,10 +71,29 @@ class Pour(BaseModel):
 # --------------------------------------------------------------------------
 
 
+_SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
+_schema_ready = False
+
+
+def ensure_schema(conn: psycopg.Connection) -> None:
+    """Створює таблиці при першому запиті в процесі. schema.sql — суцільно
+    IF NOT EXISTS, тож це дешево й ідемпотентно; ручного кроку «виконати SQL
+    у Neon» більше нема, і схема живе в одному місці — у репозиторії."""
+    global _schema_ready
+    if _schema_ready:
+        return
+    with open(_SCHEMA_PATH, encoding="utf-8") as f, conn.cursor() as cur:
+        cur.execute(f.read())
+    conn.commit()
+    _schema_ready = True
+
+
 def db() -> psycopg.Connection:
     if not DATABASE_URL:
         raise HTTPException(500, "DATABASE_URL не задано")
-    return psycopg.connect(DATABASE_URL)
+    conn = psycopg.connect(DATABASE_URL)
+    ensure_schema(conn)
+    return conn
 
 
 def require_token(authorization: Annotated[str | None, Header()] = None) -> None:

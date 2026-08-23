@@ -1,4 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": { "main.py": { "maxDuration": 15 } }
+  "functions": { "main.py": { "maxDuration": 15, "includeFiles": "schema.sql" } }
 }
