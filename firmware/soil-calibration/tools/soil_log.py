@@ -9,9 +9,9 @@
 Пишемо на диск ОДРАЗУ, з flush на кожен рядок. Прогін триває годинами, і
 втратити його через закритий ноут або висмикнутий USB було б прикро.
 
-    uv run --with pyserial tools/soil_log.py --run v12-vs-v20
+    uv run --with pyserial tools/soil_log.py --run versions
 
-Або через Makefile у firmware/: `make soil-log RUN=v12-vs-v20`.
+Або через Makefile у firmware/: `make soil-log RUN=versions`.
 """
 
 import argparse

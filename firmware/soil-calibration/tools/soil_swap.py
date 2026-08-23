@@ -6,7 +6,7 @@
 ґрунті. Це сильніше за чотири канали одразу: різниця ямки й глибини не
 змішується з різницею сенсорів.
 
-    uv run --with pyserial tools/soil_swap.py --name v1.2-A --seconds 60
+    uv run --with pyserial tools/soil_swap.py --name v2.0-A --seconds 60
 
 Заміна сенсора — це і зняття живлення з нього, тож той самий прогін заодно
 міряє холодний старт: скільки секунд від встромляння до правдивого числа.
@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True, help="який сенсор зараз стоїть")
     parser.add_argument("--seconds", type=int, default=60)
-    parser.add_argument("--channel", default="v12a", help="мітка каналу в CSV")
+    parser.add_argument("--channel", default="v20a", help="мітка каналу в CSV")
     parser.add_argument("--port", default=DEFAULT_PORT)
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)

@@ -6,7 +6,7 @@
 очікувати на осі. Заміни на реальний прогін, коли він буде:
 
     uv run --with matplotlib tools/plot_calibration_curve.py \
-        --csv data/v12-vs-v20-20260822.csv --sensor v20a
+        --csv data/versions-20260822.csv --sensor v20a
 
 Вісь X — мілілітри (кумулятивний долив), вісь Y — мілівольти. Не час: час —
 це лише скільки чекати, доки крива всядеться (див. soil_summary.py, --tail),
@@ -41,7 +41,11 @@ def parse_args() -> argparse.Namespace:
         help="реальні усталені пари 'мл:мВ,мл:мВ,...' (наприклад '0:2409,50:1018,100:924,150:898') — "
              "малює точно ці точки, без CSV і без ілюстративної кривої",
     )
-    parser.add_argument("--sensor", default="v20a", help="мітка сенсора (v12a/v12b/v20a/v20b), типово v20a")
+    parser.add_argument(
+        "--sensor",
+        default="v20a",
+        help="мітка каналу: v20a/v20b/ch4/ch5 (у старих файлах v12a/v12b)",
+    )
     parser.add_argument("--tail", type=float, default=60.0, help="хвіст кроку в секундах (як у soil_summary.py)")
     parser.add_argument("--dry-mv", type=float, default=2400.0, help="ілюстративний режим: сухий кінець (water=0)")
     parser.add_argument("--wet-mv", type=float, default=1450.0, help="ілюстративний режим: мокра асимптота")
