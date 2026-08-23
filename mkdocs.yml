@@ -118,7 +118,8 @@ nav:
       - Хмарна телеметрія: 07-cloud-telemetry.md
       - Експлуатація: 08-operations.md
   - Робота:
-      - Дослідження: research/index.md
+      - Дослідження:
+          - research/index.md
       - Гайди:
           - guides/index.md
           - Калібрувальний стенд: guides/soil-calibration-bench.md
