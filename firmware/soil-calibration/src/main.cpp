@@ -74,6 +74,12 @@ const char *SOIL_LABELS[SOIL_COUNT] = {"v12a", "v12b", "v20a", "v20b"};
 
 #define CMD_MAX_LEN 64
 
+// Чи відповів SHT31 на шині. Не константа: сенсор можна підключити до вже
+// запущеної плати, і прошивка має його підхопити без перезавантаження —
+// у полі перепрошивати заради одного дроту незручно.
+bool airPresent = false;
+unsigned long airRetryAt = 0;
+
 SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
 
 TwoWire airWire = TwoWire(1);
@@ -188,13 +194,38 @@ void readSoil(int index) {
   lastMv[index] = mvSum / SOIL_OVERSAMPLE;
 }
 
+// Раз на 10 секунд пробуємо підняти SHT31, якщо його ще нема. Частіше нема
+// сенсу: begin() тримає шину на час спроби, а сенсор або є, або нема.
+#define AIR_RETRY_MS 10000
+
+void tryFindAir() {
+  if (airPresent || (long)(millis() - airRetryAt) < 0) {
+    return;
+  }
+  airRetryAt = millis() + AIR_RETRY_MS;
+
+  if (sht31.begin(0x44)) {
+    airPresent = true;
+    Serial.println("# SHT31 знайдено — колонки air_* заповнюються");
+  }
+}
+
 void sample() {
   for (int i = 0; i < SOIL_COUNT; i++) {
     readSoil(i);
   }
 
-  lastAirT = sht31.readTemperature();
-  lastAirH = sht31.readHumidity();
+  tryFindAir();
+
+  if (airPresent) {
+    lastAirT = sht31.readTemperature();
+    lastAirH = sht31.readHumidity();
+  } else {
+    // Порожньо, а не нуль: відсутній сенсор це "не знаємо", і вигаданий нуль
+    // поїхав би в CSV як справжні 0 °C.
+    lastAirT = NAN;
+    lastAirH = NAN;
+  }
 
   String line = String((millis() - runStartMs) / 1000.0, 1);
   line += "," + String(waterMl, 1);
@@ -424,8 +455,9 @@ void setup() {
   pinMode(AIR_SDA, INPUT_PULLUP);
   pinMode(AIR_SCL, INPUT_PULLUP);
   airWire.begin(AIR_SDA, AIR_SCL);
-  if (!sht31.begin(0x44)) {
-    Serial.println("# SHT31 not found — колонки air_* будуть порожні");
+  airPresent = sht31.begin(0x44);
+  if (!airPresent) {
+    Serial.println("# SHT31 не знайдено — пробую далі кожні 10 с");
   }
 
   delay(SOIL_WARMUP_MS);
