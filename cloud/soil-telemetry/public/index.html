@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ґрунт · калібрування</title>
+<link rel="stylesheet" href="https://unpkg.com/uplot@1.6.31/dist/uPlot.min.css">
+<style>
+  :root { --bg:#fafaf7; --fg:#1d1d1b; --mut:#6b6b66; --line:#e3e2dc; --ok:#2e7d32; --warn:#b26a00; --bad:#c62828; --acc:#1565c0; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --fg:#ecebe6; --mut:#9a9993; --line:#2c2c2a; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, -apple-system, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 12px 14px 40px; }
+  header { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  select, input, button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
+  button { cursor:pointer; } button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button:disabled { opacity:.5; cursor:default; }
+  .banner { padding:10px 12px; border-radius:8px; background:#fff3cd; color:#5c3d00; margin-bottom:10px; display:none; }
+  .banner.bad { background:#fde2e1; color:#6b1111; }
+  .tiles { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:10px; margin-bottom:12px; }
+  .tile { border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .tile .lbl { color:var(--mut); font-size:13px; }
+  .tile .val { font-size:34px; font-weight:600; line-height:1.1; font-variant-numeric: tabular-nums; }
+  .tile .val small { font-size:14px; color:var(--mut); font-weight:400; }
+  .tile .sig { font-size:13px; margin-top:4px; }
+  .sig.ok { color:var(--ok);} .sig.warn { color:var(--warn);} .sig.bad { color:var(--bad);}
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:10px 0; }
+  .row input[type=number] { width:110px; }
+  .muted { color:var(--mut); font-size:13px; }
+  #chart { margin:8px 0; width:100%; overflow:hidden; }
+  .events { font-size:13px; color:var(--mut); max-height:140px; overflow:auto; border-top:1px solid var(--line); padding-top:6px; }
+  .events div { padding:2px 0; }
+  .pending { font-size:13px; } .pending span { display:inline-block; padding:2px 8px; border-radius:12px; background:#e3f2fd; color:#0d47a1; margin-right:6px; }
+  footer { margin-top:18px; font-size:13px; color:var(--mut); display:flex; gap:14px; flex-wrap:wrap; }
+  a { color:var(--acc); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Ґрунт · калібрування</h1>
+    <select id="device" title="плата"></select>
+    <span id="age" class="muted"></span>
+  </header>
+
+  <div id="banner" class="banner"></div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="row">
+    <input id="ml" type="number" inputmode="decimal" min="1" step="1" value="50" aria-label="мілілітри">
+    <button id="pour" class="primary">Влив N мл</button>
+    <span id="pourMsg" class="muted"></span>
+  </div>
+  <div id="pending" class="pending"></div>
+
+  <div id="chart"></div>
+  <div class="events" id="events"></div>
+
+  <footer>
+    <a id="csv" href="#">Вивантажити CSV</a>
+    <a id="docs" href="/api/docs">API</a>
+    <span id="token-state"></span>
+    <a href="#" id="token-reset">змінити токен</a>
+  </footer>
+</main>
+
+<script src="https://unpkg.com/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+<script>
+// Одна сторінка без збірки: опитує /api/live раз на 10 с і малює.
+// Головний екран — телефон у теплиці, тому великі числа, великі кнопки.
+const POLL_MS = 10000;
+// Пороги σ за хвилину, мВ. 0,6 — наш стенд; 3 — уже підозріло; 10 — мертвий
+// або висячий канал (docs/калібрування-ґрунту.md).
+const SIGMA_WARN = 3, SIGMA_BAD = 10;
+
+const $ = (id) => document.getElementById(id);
+let plot = null, device = null, lastData = null;
+
+function token() { try { return localStorage.getItem('soil_token') || ''; } catch { return ''; } }
+function askToken() {
+  const t = prompt('Токен приймача (той самий, що в прошивці):', token());
+  if (t !== null) { try { localStorage.setItem('soil_token', t.trim()); } catch {} }
+  showTokenState();
+}
+function showTokenState() { $('token-state').textContent = token() ? 'токен: є' : 'токен: не задано'; }
+$('token-reset').onclick = (e) => { e.preventDefault(); askToken(); };
+
+async function loadDevices() {
+  const r = await fetch('/api/devices'); const list = await r.json();
+  const sel = $('device'); sel.innerHTML = '';
+  for (const d of list) {
+    const o = document.createElement('option');
+    o.value = d.id; o.textContent = (d.label || d.id) + (d.stale ? ' · мовчить' : '');
+    sel.appendChild(o);
+  }
+  if (!list.length) { $('banner').textContent = 'Жодна плата ще не надсилала даних.'; $('banner').style.display = 'block'; return; }
+  const saved = (() => { try { return localStorage.getItem('soil_device'); } catch { return null; } })();
+  device = list.some(d => d.id === saved) ? saved : list[0].id;
+  sel.value = device;
+}
+$('device').onchange = () => { device = $('device').value; try { localStorage.setItem('soil_device', device); } catch {} refresh(); };
+
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  return s < 90 ? `${Math.round(s)} с тому` : s < 5400 ? `${Math.round(s/60)} хв тому` : `${(s/3600).toFixed(1)} год тому`;
+}
+
+function sigClass(s) { return s == null ? '' : s > SIGMA_BAD ? 'bad' : s > SIGMA_WARN ? 'warn' : 'ok'; }
+
+function renderTiles(d) {
+  const last = d.samples[d.samples.length - 1];
+  const tiles = $('tiles'); tiles.innerHTML = '';
+  d.labels.forEach((lbl, i) => {
+    const s = d.sigma_mv[i];
+    tiles.insertAdjacentHTML('beforeend', `
+      <div class="tile"><div class="lbl">${lbl}</div>
+        <div class="val">${last ? last.mv[i] : '—'}<small> мВ</small></div>
+        <div class="muted">raw ${last ? last.raw[i] : '—'}</div>
+        <div class="sig ${sigClass(s)}">σ/хв ${s == null ? '—' : s.toFixed(2)} мВ${s > SIGMA_BAD ? ' — канал мертвий?' : ''}</div>
+      </div>`);
+  });
+  const air = last && last.air_t != null ? `${last.air_t.toFixed(1)} °C · ${last.air_h.toFixed(0)} %` : 'нема SHT31';
+  tiles.insertAdjacentHTML('beforeend', `
+    <div class="tile"><div class="lbl">повітря</div><div class="val" style="font-size:22px">${air}</div>
+      <div class="sig">вода: <b>${last ? last.water_ml.toFixed(0) : '—'} мл</b> · t ${last ? Math.round(last.t) : '—'} с</div></div>`);
+}
+
+// Вісь X — реальний час, відновлений з received_at пачки: пачка надсилається
+// одразу після свого останнього заміру, тож x = received_at − (t_max_у_пачці − t).
+// Сам `t` для осі не годиться: він скидається командою `r` і не знає доби.
+function toSeries(d) {
+  const bySeq = {};
+  for (const s of d.samples) bySeq[s.seq] = Math.max(bySeq[s.seq] ?? -1, s.t);
+  const xs = d.samples.map(s => (new Date(s.received_at).getTime() / 1000) - (bySeq[s.seq] - s.t));
+  const ys = d.labels.map((_, i) => d.samples.map(s => s.mv[i]));
+  const events = d.samples.map((s, k) => s.event ? { x: xs[k], text: s.event, t: s.t } : null).filter(Boolean);
+  return { xs, ys, events };
+}
+
+function renderChart(d) {
+  const { xs, ys, events } = toSeries(d);
+  const colors = ['#1565c0', '#2e7d32', '#ef6c00', '#6a1b9a', '#00838f', '#ad1457'];
+  if (!plot) {
+    const opts = {
+      width: $('chart').clientWidth, height: 260,
+      scales: { x: { time: true } },
+      axes: [{ values: (u, vals) => vals.map(v => new Date(v * 1000).toLocaleTimeString('uk', { hour: '2-digit', minute: '2-digit' })) },
+             { label: 'мВ', size: 56 }],
+      series: [{ label: 'час' }, ...d.labels.map((l, i) => ({ label: l, stroke: colors[i % colors.length], width: 1.5, points: { show: false } }))],
+      hooks: { draw: [u => {
+        const ctx = u.ctx; ctx.save(); ctx.strokeStyle = 'rgba(198,40,40,.6)'; ctx.setLineDash([4, 4]);
+        for (const e of (u._events || [])) {
+          const x = u.valToPos(e.x, 'x', true);
+          ctx.beginPath(); ctx.moveTo(x, u.bbox.top); ctx.lineTo(x, u.bbox.top + u.bbox.height); ctx.stroke();
+        }
+        ctx.restore();
+      }] },
+    };
+    plot = new uPlot(opts, [xs, ...ys], $('chart'));
+    window.addEventListener('resize', () => plot.setSize({ width: $('chart').clientWidth, height: 260 }));
+  } else {
+    plot.setData([xs, ...ys]);
+  }
+  plot._events = events;
+  $('events').innerHTML = events.slice(-12).reverse().map(e =>
+    `<div>${new Date(e.x * 1000).toLocaleTimeString('uk')} · t=${Math.round(e.t)} с · ${e.text}</div>`).join('') || '<div>подій ще нема</div>';
+}
+
+function renderPending(d) {
+  $('pending').innerHTML = d.pending_pours.length
+    ? 'чекаю підтвердження плати: ' + d.pending_pours.map(p => `<span>${p.ml} мл${p.sent ? ' · передано' : ''}</span>`).join('')
+    : '';
+}
+
+async function refresh() {
+  if (!device) return;
+  try {
+    const r = await fetch(`/api/live?device=${encodeURIComponent(device)}`);
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json(); lastData = d;
+    $('age').textContent = 'останні дані ' + ago(d.last_seen);
+    const b = $('banner');
+    if (d.stale) { b.textContent = `Плата мовчить: останній замір ${ago(d.last_seen)}. Хотспот? Живлення?`; b.className = 'banner bad'; b.style.display = 'block'; }
+    else { b.style.display = 'none'; }
+    renderTiles(d); renderChart(d); renderPending(d);
+    $('csv').href = `/api/export.csv?device=${encodeURIComponent(device)}`;
+  } catch (e) {
+    $('banner').textContent = 'Не вдалось отримати дані: ' + e.message; $('banner').className = 'banner bad'; $('banner').style.display = 'block';
+  }
+}
+
+$('pour').onclick = async () => {
+  const ml = parseFloat($('ml').value);
+  if (!(ml > 0)) return;
+  if (!token()) askToken();
+  $('pour').disabled = true; $('pourMsg').textContent = '…';
+  try {
+    const r = await fetch('/api/pour', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+      body: JSON.stringify({ device, ml }) });
+    if (r.status === 401) { $('pourMsg').textContent = 'токен не підійшов'; askToken(); }
+    else if (!r.ok) { $('pourMsg').textContent = 'помилка ' + r.status; }
+    else { $('pourMsg').textContent = `записано; плата застосує при наступній пачці (≤30 с)`; refresh(); }
+  } catch (e) { $('pourMsg').textContent = 'мережа: ' + e.message; }
+  $('pour').disabled = false;
+};
+
+(async () => {
+  showTokenState();
+  await loadDevices();
+  await refresh();
+  setInterval(refresh, POLL_MS);
+  setInterval(() => { if (lastData) $('age').textContent = 'останні дані ' + ago(lastData.last_seen); }, 5000);
+})();
+</script>
+</body>
+</html>
