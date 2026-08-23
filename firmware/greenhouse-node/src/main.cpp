@@ -8,7 +8,17 @@
 #include <Adafruit_SHT31.h>
 
 // Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262)
-#define NODE_ID    0
+// Номер вузла в ефірі. Задається збіркою, а не правкою коду: на етапі 3 два
+// вузли стоять поруч і шлють одночасно, тож однаковий NODE_ID зробив би їх
+// нерозрізненними в базі — а вся суть досліду в тому, щоб порівняти саме їх.
+//
+//   PLATFORMIO_BUILD_FLAGS=-DNODE_ID=1 make deploy PROJECT=...
+//
+// Число має бути зареєстроване в server/config/nodes.yaml, інакше адаптер
+// відсіє пакет як від невідомого вузла.
+#ifndef NODE_ID
+#define NODE_ID 0
+#endif
 
 #define LORA_NSS   8
 #define LORA_SCK   9
@@ -30,11 +40,26 @@
 #define AIR_SDA    41
 #define AIR_SCL    42
 
+// Вбудований дільник вимірювання батареї: GPIO37 вмикає його (LOW = on),
+// GPIO1 читає. Той самий вузол, що в greenhouse-node-lowpower.
+//
+// Тут він потрібен не для алертів, а для етапу 3: опорний вузол і вузол зі
+// сном стоять поруч і розряджають однакові комірки, тож порівняти криві
+// розряду можна лише якщо ОБИДВА шлють vbat. Без цього поля в опорному
+// порівнювати нема з чим.
+#define VBAT_ADC   1
+#define VBAT_CTRL  37
+#define VBAT_DIVIDER 4.9f
+
 SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
 SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 
 TwoWire airWire = TwoWire(1);
 Adafruit_SHT31 sht31 = Adafruit_SHT31(&airWire);
+
+// Останній замір батареї — щоб showTelemetry() не робив власний,
+// не вмикаючи дільник двічі за цикл.
+float lastVbat = 0;
 
 void powerOnVext() {
   pinMode(VEXT_CTRL, OUTPUT);
@@ -116,6 +141,24 @@ void setup() {
 }
 
 
+// Дільник вмикається тільки на час заміру: увімкнений постійно, він сам
+// висаджує батарею.
+float readBatteryVolts() {
+  pinMode(VBAT_CTRL, OUTPUT);
+  digitalWrite(VBAT_CTRL, LOW);
+  delay(10);
+
+  analogSetPinAttenuation(VBAT_ADC, ADC_11db);
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; i++) {
+    mv += analogReadMilliVolts(VBAT_ADC);
+  }
+  mv /= 8;
+
+  digitalWrite(VBAT_CTRL, HIGH);
+  return (mv * VBAT_DIVIDER) / 1000.0f;
+}
+
 struct SoilReadings {
   int s1, s2, s3;
 };
@@ -149,11 +192,16 @@ int soilRawToPercent(int humSoil) {
   return constrain(soilPercent, 0, 100);
 }
 
-String buildTelemetry(int soilPercent, float airTemp, float airHum) {
+// uptime тут не прикраса: опорний вузол має працювати безперервно, і саме
+// його неперервність робить його опорним. Якщо він мовчки перезавантажиться,
+// лічильник впаде до нуля — і це буде видно в даних, а не здогадкою.
+String buildTelemetry(int soilPercent, float airTemp, float airHum, float vbat) {
   return "{\"type\":\"measurement\",\"node_id\":" + String(NODE_ID) + ","
            "\"air_temperature\":" + String(airTemp, 1) + ","
            "\"air_humidity\":" + String(airHum, 1) + ","
-           "\"soil_moisture\":" + String(soilPercent) + "}";
+           "\"soil_moisture\":" + String(soilPercent) + ","
+           "\"vbat\":" + String(vbat, 2) + ","
+           "\"uptime\":" + String(millis() / 1000) + "}";
 }
 
 void showTelemetry(int soilPercent, float airTemp, float airHum) {
@@ -161,6 +209,7 @@ void showTelemetry(int soilPercent, float airTemp, float airHum) {
   display.drawString(0, 0, "AIR TEMP: " + String(airTemp, 1) + "°C");
   display.drawString(0, 14, "AIR HUM: " + String(airHum, 1) + "%");
   display.drawString(0, 28, "SOIL: " + String(soilPercent) + "%");
+  display.drawString(0, 42, "BAT: " + String(lastVbat, 2) + "V");
   display.display();
 }
 
@@ -179,7 +228,10 @@ void loop() {
   }
 
 
-  String msg = buildTelemetry(soilPercent, airTemp, airHum);
+  float vbat = readBatteryVolts();
+  lastVbat = vbat;
+
+  String msg = buildTelemetry(soilPercent, airTemp, airHum, vbat);
   int state = radio.transmit(msg);
 
   if (state == RADIOLIB_ERR_NONE) {
