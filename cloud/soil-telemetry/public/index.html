@@ -59,7 +59,26 @@
   .status .st-age { margin-left:auto; font-weight:400; color:var(--mut); white-space:nowrap; font-size:14px; }
   .status .bar { height:4px; border-radius:2px; background:var(--line2); margin:7px 0 5px; overflow:hidden; }
   .status .bar i { display:block; height:100%; width:0; background:var(--mut); border-radius:2px; transition: width .9s linear; }
+  .status .st-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
   .status .st-next { font-size:13px; color:var(--mut); }
+  /* Батарея — тут же, бо це теж «умови прогону»: чи доживе плата до кінця.
+     Ховається цілком, коли плата на USB і полів vbat/bat_pct нема. */
+  .bat { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:var(--fg); margin-left:auto; }
+  .bat[hidden] { display:none; }
+  .bat-glyph { position:relative; display:inline-block; width:22px; height:11px; border:1.5px solid currentColor; border-radius:3px; padding:1.5px; box-sizing:border-box; }
+  .bat-glyph::after { content:''; position:absolute; right:-4px; top:2.5px; width:2.5px; height:4px; background:currentColor; border-radius:0 1px 1px 0; }
+  .bat-glyph b { display:block; height:100%; width:0; background:currentColor; border-radius:1px; }
+  .bat.warn { color:var(--warn); } .bat.bad { color:var(--bad); }
+  .bat-alert { margin-top:7px; padding:5px 9px; border-radius:8px; font-size:13px; font-weight:600; }
+  .bat-alert[hidden] { display:none; }
+  .bat-alert.warn { background:var(--warn-bg); color:var(--warn); } .bat-alert.bad { background:var(--bad-bg); color:var(--bad); }
+  .status.warn .bat-alert, .status.bad .bat-alert { background:rgba(0,0,0,.1); color:inherit; }
+  .status.warn .bat, .status.bad .bat { color:inherit; }
+  /* Підказка до ліній графіка, в яких нема плитки: °C, V батареї, мітки доливів. */
+  .hint { display:flex; flex-wrap:wrap; gap:2px 12px; font-size:12px; color:var(--mut); padding:0 2px 6px; }
+  .hint:empty { display:none; }
+  .sw { display:inline-block; width:16px; height:0; border-top:2px dashed var(--warn); vertical-align:middle; margin-right:5px; }
+  .sw-v { border-top-color:var(--mut); } .sw-p { border-top-color:var(--acc); border-top-width:2px; }
   .status.ok .dot, .status.ok .bar i { background:var(--ok); } .status.ok .dot { color:var(--ok); }
   .status.wait .dot, .status.wait .bar i { background:var(--mut); }
   .status.warn { background:var(--warn-bg); color:var(--warn); box-shadow:none; }
@@ -139,7 +158,11 @@
   <section id="status" class="card status wait" aria-live="polite">
     <div class="st-line"><span class="dot" aria-hidden="true"></span><span id="stText">з’єднуюсь…</span><span id="stAge" class="st-age num"></span></div>
     <div class="bar"><i id="stBar"></i></div>
-    <div id="stNext" class="st-next num"></div>
+    <div class="st-foot">
+      <span id="stNext" class="st-next num"></span>
+      <span id="bat" class="bat num" hidden><i class="bat-glyph" aria-hidden="true"><b id="batFill"></b></i><span id="batTxt"></span></span>
+    </div>
+    <div id="batAlert" class="bat-alert" hidden></div>
   </section>
 
   <div id="banner" class="banner" role="alert"></div>
@@ -148,6 +171,7 @@
   <div class="env num" id="env"></div>
 
   <div id="chart"></div>
+  <div class="hint" id="chartHint" aria-hidden="true"></div>
   <details class="events" id="eventsBox" open>
     <summary id="eventsTitle">події</summary>
     <div id="events"></div>
@@ -186,6 +210,8 @@ const LATE_S = 45;    // після цього показуємо «запізн
 // Пороги σ за хвилину, мВ. 0,6 — наш стенд; 3 — уже підозріло; 10 — мертвий
 // або висячий канал (docs/калібрування-ґрунту.md).
 const SIGMA_WARN = 3, SIGMA_BAD = 10;
+// Батарея, %: нижче 20 — попередити, нижче 10 — прогін ось-ось зупиниться.
+const BAT_WARN = 20, BAT_BAD = 10;
 // Кольори каналів — з CSS-змінних теми (--c1…--c4), щоб плитки й графік збігались.
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const COLORS = ['--c1', '--c2', '--c3', '--c4'].map(cssVar);
@@ -222,7 +248,8 @@ async function loadDevices() {
     sel.appendChild(o);
   }
   if (!list.length) { showBanner('Жодна плата ще не надсилала даних.'); setStatus('bad', 'даних нема', '', 0, ''); return; }
-  const saved = store.get('soil_device');
+  // ?device=… у посиланні має пріоритет над збереженим вибором (закладка на плату).
+  const saved = new URLSearchParams(location.search).get('device') || store.get('soil_device');
   device = list.some(d => d.id === saved) ? saved : list[0].id;
   sel.value = device;
 }
@@ -233,6 +260,27 @@ function showBanner(text) { const b = $('banner'); b.textContent = text; b.style
 // ---------------------------------------------------------------- час
 function fmtDur(s) { return s < 90 ? `${Math.round(s)} с` : s < 5400 ? `${Math.round(s / 60)} хв` : `${(s / 3600).toFixed(1)} год`; }
 function fmtAgo(s) { return fmtDur(s) + ' тому'; }
+// Батарея з останнього заміру; null, коли плата на USB (полів нема).
+function batInfo(d) {
+  const last = d && d.samples[d.samples.length - 1];
+  if (!last || (last.bat_pct == null && last.vbat == null)) return null;
+  const pct = last.bat_pct, v = last.vbat;
+  const cls = pct == null ? '' : pct < BAT_BAD ? 'bad' : pct < BAT_WARN ? 'warn' : '';
+  const txt = [pct == null ? null : `${pct} %`, v == null ? null : `${v.toFixed(2)} V`].filter(Boolean).join(' · ');
+  return { pct, v, cls, txt };
+}
+function renderBattery(b, silent) {
+  const el = $('bat'), al = $('batAlert');
+  el.hidden = !b; if (!b) { al.hidden = true; return; }
+  el.className = 'bat num ' + b.cls; $('batTxt').textContent = b.txt;
+  $('batFill').style.width = (b.pct == null ? 0 : Math.max(0, Math.min(100, b.pct))) + '%';
+  // Коли плата мовчить, про батарею каже сам червоний рядок — другого банера не треба.
+  al.hidden = !b.cls || silent;
+  if (!al.hidden) {
+    al.className = 'bat-alert ' + b.cls;
+    al.textContent = b.cls === 'bad' ? `батарея ${b.pct} % — плата ось-ось вимкнеться, прогін зупиниться` : `батарея ${b.pct} % — прогін може зупинитись`;
+  }
+}
 function setStatus(cls, text, age, frac, next) {
   $('status').className = 'card status ' + cls;
   $('stText').textContent = text; $('stAge').textContent = age; $('stNext').textContent = next;
@@ -244,8 +292,11 @@ function tick() {
   if (!lastData) return;
   const age = Math.max(0, (now() - Date.parse(lastData.last_seen)) / 1000);
   const agoTxt = 'замір ' + fmtAgo(age);
+  const bat = batInfo(lastData);
+  renderBattery(bat, age > STALE_S);
   if (age > STALE_S) {
-    setStatus('bad', 'плата мовчить', agoTxt, 1, `нема пачок ${fmtDur(age)}. Хотспот? Живлення?`);
+    const why = bat && bat.cls ? `Остання батарея ${bat.pct} % — сіла?` : 'Хотспот? Живлення?';
+    setStatus('bad', 'плата мовчить', agoTxt, 1, `нема пачок ${fmtDur(age)}. ${why}`);
   } else if (age > LATE_S) {
     setStatus('warn', 'пачка запізнюється', agoTxt, age / STALE_S, `+${Math.round(age - BATCH_S)} с до очікуваної · «мовчить» після ${STALE_S} с`);
   } else if (age > BATCH_S) {
@@ -308,8 +359,9 @@ function toSeries(d) {
   }
   const ys = d.labels.map((_, i) => d.samples.map(s => s.mv[i]));
   const temp = d.samples.map(s => s.air_t == null ? null : s.air_t);
+  const vbat = d.samples.map(s => s.vbat == null ? null : s.vbat);
   const events = d.samples.map((s, k) => s.event ? { x: xs[k], text: s.event, t: s.t } : null).filter(Boolean);
-  return { xs, ys, temp, events };
+  return { xs, ys, temp, vbat, events };
 }
 
 function hiddenChannels() {
@@ -342,12 +394,16 @@ function mvRange(ys, alive) {
 function chartHeight() { return window.innerWidth < 640 ? 210 : 280; }
 
 function renderChart(d) {
-  const { xs, ys, temp, events } = toSeries(d);
+  const { xs, ys, temp, vbat, events } = toSeries(d);
   const alive = aliveMask(d);
   const hide = hiddenChannels();
-  // Кількість каналів може змінитись (перепрошивка, інша плата) — тоді графік
-  // перебудовується з нуля, а не намагається натягнути нові дані на старі серії.
-  if (plot && plot._labels !== d.labels.join(',')) { plot.destroy(); plot = null; }
+  // vbat є лише на батареї; на USB полів нема — тоді ні лінії, ні осі V.
+  const hasVbat = vbat.some(v => v != null);
+  // Кількість каналів або наявність vbat може змінитись (перепрошивка, інша
+  // плата, USB↔батарея) — тоді графік перебудовується з нуля, а не намагається
+  // натягнути нові дані на старі серії.
+  const key = d.labels.join(',') + '|' + (hasVbat ? 'v' : '');
+  if (plot && plot._labels !== key) { plot.destroy(); plot = null; }
   if (!plot) {
     // Кольори осей беремо з теми, щоб графік читався і в темному режимі.
     const axis = { stroke: cssVar('--mut'), grid: { stroke: cssVar('--line') }, ticks: { stroke: cssVar('--line') }, font: '12px "IBM Plex Sans", system-ui' };
@@ -359,16 +415,24 @@ function renderChart(d) {
         x: { time: true },
         y: { range: (u) => u._yRange || [0, 1] },
         c: { range: (u, min, max) => (min == null || max == null) ? [0, 1] : [min - 0.5, max + 0.5] },
+        v: { range: (u, min, max) => (min == null || max == null) ? [3, 4.3] : [Math.min(min, 3.4) - 0.05, Math.max(max, 4.2) + 0.05] },
       },
       axes: [{ ...axis, values: (u, vals) => vals.map(v => new Date(v * 1000).toLocaleTimeString('uk', { hour: '2-digit', minute: '2-digit' })) },
              { ...axis, label: 'мВ', labelFont: '600 12px "IBM Plex Sans", system-ui', size: 52 },
              // Температура другою віссю праворуч: на довгій дистанції саме вона
              // пояснює повільний дрейф мВ, без неї крива висихання не читається.
-             { ...axis, scale: 'c', side: 1, label: '°C', labelFont: '600 12px "IBM Plex Sans", system-ui', size: 44, grid: { show: false },
-               values: (u, vals) => vals.map(v => v.toFixed(1)) }],
+             { ...axis, scale: 'c', side: 1, label: '°C', labelFont: '600 12px "IBM Plex Sans", system-ui', size: hasVbat ? 40 : 44, grid: { show: false },
+               values: (u, vals) => vals.map(v => v.toFixed(1)) },
+             // Напруга батареї — третя вісь праворуч, лише коли плата на батареї:
+             // на телефоні кожна вісь коштує ширини графіка. Діапазон фіксований
+             // 3,4–4,2 В, щоб падіння читалось як падіння, а не як шум на всю висоту.
+             ...(hasVbat ? [{ ...axis, scale: 'v', side: 1, size: 46, grid: { show: false }, incrs: [0.2, 0.5, 1],
+               values: (u, vals) => vals.map(v => v.toFixed(1) + ' V') }] : [])],
       series: [{ label: 'час' },
                ...d.labels.map((l, i) => ({ label: l, stroke: COLORS[i % COLORS.length], width: 1.5, points: { show: false } })),
-               { label: '°C', scale: 'c', stroke: cssVar('--warn'), width: 1.25, dash: [3, 4], points: { show: false } }],
+               { label: '°C', scale: 'c', stroke: cssVar('--warn'), width: 1.25, dash: [3, 4], points: { show: false } },
+               // vbat — сірий довгий пунктир: «умови», як і °C, але інший штрих і колір.
+               ...(hasVbat ? [{ label: 'V', scale: 'v', stroke: cssVar('--mut'), width: 1.25, dash: [7, 4], points: { show: false } }] : [])],
       hooks: { draw: [u => {
         const ctx = u.ctx; ctx.save(); ctx.strokeStyle = cssVar('--acc'); ctx.setLineDash([4, 4]); ctx.lineWidth = 1.5;
         for (const e of (u._events || [])) {
@@ -378,8 +442,8 @@ function renderChart(d) {
         ctx.restore();
       }] },
     };
-    plot = new uPlot(opts, [xs, ...ys, temp], $('chart'));
-    plot._labels = d.labels.join(',');
+    plot = new uPlot(opts, [xs, ...ys, temp, ...(hasVbat ? [vbat] : [])], $('chart'));
+    plot._labels = key;
   }
   plot._yRange = mvRange(ys, alive);
   // Мертві/сховані — пунктиром і тонко (сховані зовсім не малюємо).
@@ -389,8 +453,9 @@ function renderChart(d) {
     sr.dash = dead ? [2, 4] : null; sr.width = dead ? 1 : 1.5;
     plot.setSeries(i + 1, { show: !hide.has(l) }, false);
   });
-  plot.setData([xs, ...ys, temp]);
+  plot.setData([xs, ...ys, temp, ...(hasVbat ? [vbat] : [])]);
   plot._events = events;
+  $('chartHint').innerHTML = `<span><i class="sw"></i>°C повітря</span>${hasVbat ? '<span><i class="sw sw-v"></i>V батареї</span>' : ''}<span><i class="sw sw-p"></i>долив</span>`;
   $('eventsTitle').textContent = `події · доливи (${events.length})`;
   $('events').innerHTML = events.slice(-10).reverse().map(e =>
     `<div class="num">${new Date(e.x * 1000).toLocaleTimeString('uk')} · t=${Math.round(e.t)} с · <b>${e.text}</b></div>`).join('') || '<div>подій ще нема</div>';
