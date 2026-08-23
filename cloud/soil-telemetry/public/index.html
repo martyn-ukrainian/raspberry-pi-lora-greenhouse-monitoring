@@ -6,88 +6,103 @@
 <meta name="color-scheme" content="light dark">
 <title>Ґрунт · калібрування</title>
 <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.31/dist/uPlot.min.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap">
 <style>
-  /* Палітра: контраст ≥ 4.5:1 на своєму фоні і в світлій, і в темній темі —
-     сторінку читають на сонці в теплиці. */
+  /* Палітра «теплиця»: теплий темний фон із зеленуватим відтінком, акцент —
+     мох. Усі пари текст/фон ≥ 4.5:1 у двох темах — сторінку читають на сонці. */
   :root {
-    --bg:#f4f4ef; --card:#ffffff; --fg:#15150f; --mut:#5b5b55; --line:#d9d8d0;
-    --acc:#0b57d0; --acc-fg:#ffffff;
-    --ok:#1a6b2b;   --ok-bg:#e6f4e8;
-    --warn:#8a5200; --warn-bg:#fff3d6;
-    --bad:#b71c1c;  --bad-bg:#fde8e7;
-    --info:#0b57d0; --info-bg:#e4eefc;
-    --bar-h: 190px; /* висота нижньої панелі; JS уточнює */
+    --bg:#f3f2ec; --card:#fbfbf8; --card2:#f4f4ee; --fg:#1b1f18; --mut:#5f645a; --line:#dcdbd0; --line2:#ebeae2;
+    --acc:#4b7a2c; --acc-fg:#ffffff; --acc-soft:#e6f0da; --acc-txt:#3f6b24;
+    --ok:#2c6a36;   --ok-bg:#e1efda;
+    --warn:#85560e; --warn-bg:#f7ecd3;
+    --bad:#a33a2d;  --bad-bg:#f9e3de;
+    --info:#3b5568; --info-bg:#e4ecf1;
+    --c1:#2d7fc4; --c2:#d0603e; --c3:#17978a; --c4:#7d57c4;   /* канали на графіку */
+    --shadow:0 1px 2px rgba(30,35,20,.06), 0 0 0 1px var(--line);
+    --hl:inset 0 1px 0 rgba(255,255,255,.8);
+    --bar-h: 150px; /* висота нижньої панелі; JS уточнює */
   }
   @media (prefers-color-scheme: dark) { :root {
-    --bg:#121211; --card:#1e1e1c; --fg:#f2f1ec; --mut:#a9a8a1; --line:#33332f;
-    --acc:#0b57d0; --acc-fg:#ffffff;
-    --ok:#a6e3ad;   --ok-bg:#1f3b24;
-    --warn:#ffd27a; --warn-bg:#3d2e0c;
-    --bad:#ffb4ab;  --bad-bg:#4a1a17;
-    --info:#a8c7fa; --info-bg:#1c2f4f;
+    --bg:#141613; --card:#1e211d; --card2:#181b17; --fg:#eef0e8; --mut:#a4a99c; --line:#2d312a; --line2:#252922;
+    --acc:#8cbf66; --acc-fg:#141613; --acc-soft:#27381f; --acc-txt:#b9dc9a;
+    --ok:#a4d89b;   --ok-bg:#223520;
+    --warn:#ecc56f; --warn-bg:#3a3014;
+    --bad:#f3a597;  --bad-bg:#45211c;
+    --info:#b6cbd9; --info-bg:#22303a;
+    --c1:#5fa8e6; --c2:#ee8a6c; --c3:#3cbfae; --c4:#b08ae6;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 0 0 1px var(--line);
+    --hl:inset 0 1px 0 rgba(255,255,255,.05);
   } }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, -apple-system, sans-serif; overflow-x:hidden; }
-  main { max-width: 760px; margin: 0 auto; padding: 10px 12px calc(var(--bar-h) + 12px); }
-  a { color:var(--acc); }
-  select, input, button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:10px; min-height:44px; padding:8px 12px; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.4 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x:hidden; }
+  main { max-width: 760px; margin: 0 auto; padding: 8px 12px calc(var(--bar-h) + env(safe-area-inset-bottom) + 32px); }
+  a { color:var(--acc-txt); }
+  select, input, button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:12px; min-height:44px; padding:8px 12px; }
   button { cursor:pointer; -webkit-tap-highlight-color: transparent; }
   button:disabled { opacity:.55; cursor:default; }
   button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline:3px solid var(--acc); outline-offset:2px; }
   .num { font-variant-numeric: tabular-nums; }
+  .card { background:linear-gradient(180deg, var(--card), var(--card2)); border:0; box-shadow:var(--shadow), var(--hl); border-radius:14px; }
 
-  header { display:flex; gap:6px 10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
-  header h1 { font-size:17px; margin:0; flex:1 1 auto; }
-  header select { flex:0 1 auto; max-width:100%; padding:6px 8px; }
+  header { display:flex; gap:6px 10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  header h1 { font-size:17px; font-weight:600; letter-spacing:-.2px; margin:0; flex:1 1 auto; }
+  header h1 span { color:var(--mut); font-weight:400; }
+  header select { flex:0 1 auto; max-width:100%; padding:6px 8px; border-radius:10px; }
 
-  /* Стан зв'язку з платою: великий рядок + смужка до наступної пачки. */
-  .status { border-radius:12px; padding:10px 12px; margin-bottom:10px; background:var(--card); border:1px solid var(--line); }
-  .status .st-line { display:flex; align-items:center; gap:8px; font-weight:600; }
-  .status .dot { width:12px; height:12px; border-radius:50%; background:var(--mut); flex:none; }
-  .status .st-age { margin-left:auto; font-weight:400; color:var(--mut); white-space:nowrap; }
-  .status .bar { height:6px; border-radius:3px; background:var(--line); margin:8px 0 6px; overflow:hidden; }
-  .status .bar i { display:block; height:100%; width:0; background:var(--mut); border-radius:3px; transition: width .9s linear; }
-  .status .st-next { font-size:14px; color:var(--mut); }
-  .status.ok .dot { background:var(--ok); }  .status.ok .bar i { background:var(--ok); }
-  .status.wait .dot { background:var(--mut); } .status.wait .bar i { background:var(--mut); }
-  .status.warn { background:var(--warn-bg); border-color:transparent; color:var(--warn); }
-  .status.warn .dot, .status.warn .bar i { background:var(--warn); } .status.warn .st-age, .status.warn .st-next { color:inherit; }
-  .status.bad  { background:var(--bad-bg); border-color:transparent; color:var(--bad); }
-  .status.bad .dot, .status.bad .bar i { background:var(--bad); } .status.bad .st-age, .status.bad .st-next { color:inherit; }
+  /* Стан зв’язку з платою: рядок стану + тонка смужка до наступної пачки. */
+  .status { padding:9px 12px 8px; margin-bottom:8px; }
+  .status .st-line { display:flex; align-items:center; gap:8px; font-weight:600; font-size:15px; }
+  .status .dot { width:10px; height:10px; border-radius:50%; background:var(--mut); flex:none; box-shadow:0 0 0 3px color-mix(in srgb, currentColor 12%, transparent); }
+  .status .st-age { margin-left:auto; font-weight:400; color:var(--mut); white-space:nowrap; font-size:14px; }
+  .status .bar { height:4px; border-radius:2px; background:var(--line2); margin:7px 0 5px; overflow:hidden; }
+  .status .bar i { display:block; height:100%; width:0; background:var(--mut); border-radius:2px; transition: width .9s linear; }
+  .status .st-next { font-size:13px; color:var(--mut); }
+  .status.ok .dot, .status.ok .bar i { background:var(--ok); } .status.ok .dot { color:var(--ok); }
+  .status.wait .dot, .status.wait .bar i { background:var(--mut); }
+  .status.warn { background:var(--warn-bg); color:var(--warn); box-shadow:none; }
+  .status.warn .dot, .status.warn .bar i { background:var(--warn); } .status.warn .bar { background:rgba(0,0,0,.12); }
+  .status.bad  { background:var(--bad-bg); color:var(--bad); box-shadow:none; }
+  .status.bad .dot, .status.bad .bar i { background:var(--bad); } .status.bad .bar { background:rgba(0,0,0,.12); }
+  .status.warn .st-age, .status.warn .st-next, .status.bad .st-age, .status.bad .st-next { color:inherit; opacity:.9; }
   @keyframes blink { 50% { opacity:.25; } }
   .status.bad .dot { animation: blink 1.2s step-start infinite; }
 
-  .banner { padding:10px 12px; border-radius:10px; background:var(--bad-bg); color:var(--bad); margin-bottom:10px; display:none; font-weight:600; }
+  .banner { padding:10px 12px; border-radius:12px; background:var(--bad-bg); color:var(--bad); margin-bottom:8px; display:none; font-weight:600; }
 
   /* Плитки каналів: велике число мВ, під ним σ/хв кольоровим бейджем. */
-  .tiles { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:8px; }
+  .tiles { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:6px; }
   @media (min-width: 640px) { .tiles { grid-template-columns: repeat(4, minmax(0,1fr)); } }
-  .tile { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:8px 10px 10px; min-width:0; }
-  .tile .lbl { display:flex; align-items:center; gap:6px; color:var(--mut); font-size:14px; font-weight:600; }
-  .tile .lbl i { width:10px; height:10px; border-radius:2px; flex:none; display:inline-block; }
-  .tile .val { font-size:36px; font-weight:700; line-height:1.15; letter-spacing:-.5px; }
-  .tile .val small { font-size:14px; color:var(--mut); font-weight:400; letter-spacing:0; }
-  .tile .raw { color:var(--mut); font-size:13px; }
-  .tile .sig { display:inline-block; margin-top:6px; font-size:13px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--line); }
+  .tile { padding:8px 11px 10px; min-width:0; }
+  .tile .lbl { display:flex; align-items:center; gap:6px; color:var(--mut); font-size:13px; font-weight:600; letter-spacing:.2px; }
+  .tile .lbl i { width:9px; height:9px; border-radius:3px; flex:none; display:inline-block; }
+  .tile .val { font-size:34px; font-weight:600; line-height:1.15; letter-spacing:-1px; margin-top:1px; }
+  .tile .val small { font-size:13px; color:var(--mut); font-weight:400; letter-spacing:0; margin-left:1px; }
+  .tile .raw { color:var(--mut); font-size:12.5px; }
+  .tile .sig { display:inline-block; margin-top:6px; font-size:12.5px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--line2); color:var(--mut); }
   .sig.ok { color:var(--ok); background:var(--ok-bg); } .sig.warn { color:var(--warn); background:var(--warn-bg); } .sig.bad { color:var(--bad); background:var(--bad-bg); }
-  .env { display:flex; flex-wrap:wrap; gap:4px 14px; color:var(--mut); font-size:14px; padding:2px 2px 8px; }
+  .env { display:flex; flex-wrap:wrap; gap:2px 12px; color:var(--mut); font-size:13px; padding:2px 2px 4px; }
   .env b { color:var(--fg); font-weight:600; }
 
-  #chart { margin:4px 0 2px; width:100%; overflow:hidden; }
-  .events { font-size:13px; color:var(--mut); border-top:1px solid var(--line); padding-top:6px; }
-  .events summary { cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:600; color:var(--fg); }
-  .events div { padding:4px 0; }
+  #chart { margin:2px 0 0; width:100%; overflow:hidden; }
+  .events { font-size:13px; color:var(--mut); border-top:1px solid var(--line); }
+  .events summary { cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:600; color:var(--fg); list-style:none; }
+  .events summary::-webkit-details-marker { display:none; }
+  .events summary::before { content:'▸'; margin-right:6px; color:var(--mut); font-size:12px; }
+  .events[open] summary::before { content:'▾'; }
+  .events div { padding:3px 0; }
 
-  footer { margin-top:10px; display:flex; gap:4px 6px; flex-wrap:wrap; align-items:center; font-size:14px; color:var(--mut); }
-  footer a, footer button { display:inline-flex; align-items:center; min-height:44px; padding:0 10px; border:0; background:none; color:var(--acc); text-decoration:underline; border-radius:8px; }
+  footer { margin-top:6px; display:flex; gap:4px 6px; flex-wrap:wrap; align-items:center; font-size:14px; color:var(--mut); }
+  footer a, footer button { display:inline-flex; align-items:center; min-height:44px; padding:0 10px; border:0; background:none; color:var(--acc-txt); text-decoration:underline; text-underline-offset:3px; border-radius:8px; }
 
   /* Нижня панель дій: завжди під великим пальцем. */
   .actionbar { position:fixed; left:0; right:0; bottom:0; z-index:5;
-    background:var(--card); border-top:1px solid var(--line); box-shadow:0 -6px 18px rgba(0,0,0,.08);
+    background:var(--card); border-top:1px solid var(--line); box-shadow:0 -8px 24px rgba(0,0,0,.12);
     padding:8px 12px calc(8px + env(safe-area-inset-bottom)); }
   .actionbar .inner { max-width:760px; margin:0 auto; }
-  .pending { display:none; align-items:center; gap:8px; border-radius:10px; padding:6px 10px; margin-bottom:8px; font-size:14px; font-weight:600;
+  .pending { display:none; align-items:center; gap:8px; border-radius:10px; padding:6px 10px; margin-bottom:8px; font-size:13.5px; font-weight:600;
     background:var(--info-bg); color:var(--info); }
   .pending.show { display:flex; }
   .pending .spin { width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; flex:none; animation: spin 1s linear infinite; }
@@ -96,16 +111,17 @@
   .pending.err { background:var(--bad-bg); color:var(--bad); } .pending.err .spin { display:none; }
   .pending .txt { flex:1; min-width:0; }
   .amount { display:flex; gap:6px; margin-bottom:8px; }
-  .amount button { flex:1; min-width:0; padding:8px 4px; font-weight:600; font-size:17px; }
-  .amount button.on { background:var(--info-bg); border-color:var(--acc); color:var(--info); }
+  .amount button { flex:1; min-width:0; padding:8px 4px; font-weight:600; font-size:17px; background:var(--bg); }
+  .amount button.on { background:var(--acc-soft); border-color:var(--acc); color:var(--acc-txt); box-shadow:inset 0 0 0 1px var(--acc); }
   .amount .field { flex:1.3; display:flex; align-items:center; gap:4px; }
   .amount .field input { flex:1; min-width:0; width:100%; text-align:right; padding:8px 8px; font-size:17px; }
-  .amount .field span { color:var(--mut); font-size:14px; }
-  button.pour { display:block; width:100%; min-height:58px; font-size:20px; font-weight:700; border-radius:14px;
-    background:var(--acc); color:var(--acc-fg); border-color:var(--acc); box-shadow:0 2px 0 rgba(0,0,0,.15); }
+  .amount .field span { color:var(--mut); font-size:13px; }
+  button.pour { display:block; width:100%; min-height:58px; font-size:20px; font-weight:700; border-radius:16px; letter-spacing:-.2px;
+    background:linear-gradient(180deg, color-mix(in srgb, var(--acc) 92%, #fff), var(--acc)); color:var(--acc-fg); border-color:transparent;
+    box-shadow:0 2px 0 color-mix(in srgb, var(--acc) 60%, #000), var(--hl); }
   button.pour:active:not(:disabled) { transform: translateY(1px); box-shadow:none; }
   button.pour:disabled { opacity:.7; }
-  .pour-msg { font-size:14px; color:var(--mut); text-align:center; min-height:0; padding-top:4px; display:none; }
+  .pour-msg { font-size:13.5px; color:var(--mut); text-align:center; padding-top:4px; display:none; }
   .pour-msg.show { display:block; }
   .pour-msg.bad { color:var(--bad); font-weight:600; }
   .pour-msg.ok { color:var(--ok); font-weight:600; }
@@ -114,12 +130,12 @@
 <body>
 <main>
   <header>
-    <h1>Ґрунт · калібрування</h1>
+    <h1>Ґрунт <span>· калібрування</span></h1>
     <select id="device" aria-label="плата"></select>
   </header>
 
-  <section id="status" class="status wait" aria-live="polite">
-    <div class="st-line"><span class="dot" aria-hidden="true"></span><span id="stText">зʼєднуюсь…</span><span id="stAge" class="st-age num"></span></div>
+  <section id="status" class="card status wait" aria-live="polite">
+    <div class="st-line"><span class="dot" aria-hidden="true"></span><span id="stText">з’єднуюсь…</span><span id="stAge" class="st-age num"></span></div>
     <div class="bar"><i id="stBar"></i></div>
     <div id="stNext" class="st-next num"></div>
   </section>
@@ -168,7 +184,9 @@ const LATE_S = 45;    // після цього показуємо «запізн
 // Пороги σ за хвилину, мВ. 0,6 — наш стенд; 3 — уже підозріло; 10 — мертвий
 // або висячий канал (docs/калібрування-ґрунту.md).
 const SIGMA_WARN = 3, SIGMA_BAD = 10;
-const COLORS = ['#1565c0', '#2e7d32', '#ef6c00', '#6a1b9a', '#00838f', '#ad1457'];
+// Кольори каналів — з CSS-змінних теми (--c1…--c4), щоб плитки й графік збігались.
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COLORS = ['--c1', '--c2', '--c3', '--c4'].map(cssVar);
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -214,7 +232,7 @@ function showBanner(text) { const b = $('banner'); b.textContent = text; b.style
 function fmtDur(s) { return s < 90 ? `${Math.round(s)} с` : s < 5400 ? `${Math.round(s / 60)} хв` : `${(s / 3600).toFixed(1)} год`; }
 function fmtAgo(s) { return fmtDur(s) + ' тому'; }
 function setStatus(cls, text, age, frac, next) {
-  $('status').className = 'status ' + cls;
+  $('status').className = 'card status ' + cls;
   $('stText').textContent = text; $('stAge').textContent = age; $('stNext').textContent = next;
   $('stBar').style.width = Math.max(0, Math.min(1, frac)) * 100 + '%';
 }
@@ -231,7 +249,7 @@ function tick() {
   } else if (age > BATCH_S) {
     setStatus('wait', 'чекаю пачку', agoTxt, age / STALE_S, `очікувана вже +${Math.round(age - BATCH_S)} с · оновлю в межах 10 с`);
   } else {
-    setStatus('ok', 'плата на звʼязку', agoTxt, age / BATCH_S, `наступна пачка ≈ через ${Math.ceil(BATCH_S - age)} с`);
+    setStatus('ok', 'плата на зв’язку', agoTxt, age / BATCH_S, `наступна пачка ≈ через ${Math.ceil(BATCH_S - age)} с`);
   }
 }
 
@@ -245,7 +263,7 @@ function renderTiles(d) {
     const s = d.sigma_mv[i];
     const note = s > SIGMA_BAD ? ' · мертвий?' : s > SIGMA_WARN ? ' · шум' : '';
     tiles.insertAdjacentHTML('beforeend', `
-      <div class="tile"><div class="lbl"><i style="background:${COLORS[i % COLORS.length]}"></i>${lbl}</div>
+      <div class="card tile"><div class="lbl"><i style="background:${COLORS[i % COLORS.length]}"></i>${lbl}</div>
         <div class="val num">${last ? last.mv[i] : '—'}<small> мВ</small></div>
         <div class="raw num">raw ${last ? last.raw[i] : '—'}</div>
         <div class="sig ${sigClass(s)} num">σ/хв ${s == null ? '—' : s.toFixed(2)}${note}</div>
@@ -270,24 +288,23 @@ function toSeries(d) {
   return { xs, ys, events };
 }
 
-function chartHeight() { return window.innerWidth < 640 ? 220 : 280; }
+function chartHeight() { return window.innerWidth < 640 ? 210 : 280; }
 
 function renderChart(d) {
   const { xs, ys, events } = toSeries(d);
   if (!plot) {
     // Кольори осей беремо з теми, щоб графік читався і в темному режимі.
-    const css = getComputedStyle(document.documentElement);
-    const axis = { stroke: css.getPropertyValue('--mut').trim(), grid: { stroke: css.getPropertyValue('--line').trim() }, ticks: { stroke: css.getPropertyValue('--line').trim() } };
+    const axis = { stroke: cssVar('--mut'), grid: { stroke: cssVar('--line') }, ticks: { stroke: cssVar('--line') }, font: '12px "IBM Plex Sans", system-ui' };
     const opts = {
       width: $('chart').clientWidth, height: chartHeight(),
       legend: { show: false }, // кольори каналів показані на плитках
       cursor: { drag: { x: false, y: false } },
       scales: { x: { time: true } },
       axes: [{ ...axis, values: (u, vals) => vals.map(v => new Date(v * 1000).toLocaleTimeString('uk', { hour: '2-digit', minute: '2-digit' })) },
-             { ...axis, label: 'мВ', labelFont: '600 13px system-ui', size: 52 }],
+             { ...axis, label: 'мВ', labelFont: '600 12px "IBM Plex Sans", system-ui', size: 52 }],
       series: [{ label: 'час' }, ...d.labels.map((l, i) => ({ label: l, stroke: COLORS[i % COLORS.length], width: 1.5, points: { show: false } }))],
       hooks: { draw: [u => {
-        const ctx = u.ctx; ctx.save(); ctx.strokeStyle = 'rgba(198,40,40,.7)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1.5;
+        const ctx = u.ctx; ctx.save(); ctx.strokeStyle = cssVar('--acc'); ctx.setLineDash([4, 4]); ctx.lineWidth = 1.5;
         for (const e of (u._events || [])) {
           const x = u.valToPos(e.x, 'x', true);
           ctx.beginPath(); ctx.moveTo(x, u.bbox.top); ctx.lineTo(x, u.bbox.top + u.bbox.height); ctx.stroke();
