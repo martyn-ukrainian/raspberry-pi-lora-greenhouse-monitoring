@@ -22,6 +22,19 @@ PI_HOST ?= agro@agro-pi.local
 PI_DIR ?= agro
 PI_GATEWAY_PORT ?= /dev/ttyUSB0
 
+# Облікові дані Wi-Fi і приймача — з .env, який лежить поруч і не в git.
+# Читаємо файлом, а не аргументом команди: інакше пароль осідає в історії
+# оболонки, а звідти його вже не прибрати.
+#
+# Прапорці підставляються лише коли PIO_ENV починається з wifi_ — звичайні
+# збірки лишаються байт у байт такими, як були.
+-include .env
+export WIFI_SSID WIFI_PASS INGEST_URL INGEST_TOKEN
+
+WIFI_FLAGS = -DWIFI_SSID=\"$(WIFI_SSID)\" -DWIFI_PASS=\"$(WIFI_PASS)\" \
+             -DINGEST_URL=\"$(INGEST_URL)\" -DINGEST_TOKEN=\"$(INGEST_TOKEN)\"
+PIO_EXTRA_FLAGS = $(if $(filter wifi_%,$(PIO_ENV)),$(WIFI_FLAGS),)
+
 # Прогін калібрувального стенду: ім'я йде в назву CSV-файлу, щоб прогони не
 # зливались в одну купу. `make soil-log RUN=v12-vs-v20`.
 RUN ?= run
@@ -48,7 +61,12 @@ build:
 	docker compose run --rm $(PROJECT) run $(PIO_ENV_ARG)
 
 upload: _ensure-host-pio
-	SERIAL_PORT=$(SERIAL_PORT) pio run -d $(PROJECT) $(PIO_ENV_ARG) -t upload
+	@$(if $(filter wifi_%,$(PIO_ENV)),\
+	  test -n "$(WIFI_SSID)" || { echo "нема WIFI_SSID — заповни firmware/.env"; exit 1; }; \
+	  test -n "$(WIFI_PASS)" || { echo "нема WIFI_PASS — заповни firmware/.env"; exit 1; }; \
+	  echo "Wi-Fi: $(WIFI_SSID) -> $(INGEST_URL)";)
+	SERIAL_PORT=$(SERIAL_PORT) PLATFORMIO_BUILD_FLAGS='$(PIO_EXTRA_FLAGS)' \
+		pio run -d $(PROJECT) $(PIO_ENV_ARG) -t upload
 
 # build (в Docker) + upload (з хоста) одним викликом.
 deploy: build upload
