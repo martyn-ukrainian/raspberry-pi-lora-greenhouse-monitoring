@@ -1,7 +1,7 @@
 # Agro — документація / Documentation
 
-Сайт: **https://martyn-ukrainian.github.io/raspberry-pi-lora-greenhouse-monitoring/**
-(збирається з цієї теки автоматично при пуші в `main`).
+Сайт: **https://agro-docs.vercel.app/**
+(Vercel збирає з цієї теки автоматично при пуші в `main`).
 
 | 🇺🇦 Українська | 🇬🇧 English |
 |---|---|

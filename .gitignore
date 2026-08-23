@@ -55,3 +55,6 @@ scripts/pi.env
 # MkDocs
 site/
 .venv-docs/
+
+# Vercel
+.vercel/

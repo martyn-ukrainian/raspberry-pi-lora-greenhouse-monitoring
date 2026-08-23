@@ -1,0 +1,8 @@
+# Сайт збирається з documentation/ + mkdocs.yml; решта в білд-контекст не потрібна.
+node_modules
+.expo
+.venv
+venv
+.ruff_cache
+__pycache__
+*.pyc

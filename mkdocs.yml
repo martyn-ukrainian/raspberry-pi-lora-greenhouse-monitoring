@@ -1,7 +1,7 @@
 site_name: Agro — моніторинг теплиць
 site_description: LoRa-моніторинг тепличного господарства на Heltec V3 і Raspberry Pi
 site_author: martyn-ukrainian
-site_url: https://martyn-ukrainian.github.io/raspberry-pi-lora-greenhouse-monitoring/
+site_url: https://agro-docs.vercel.app/
 repo_url: https://github.com/martyn-ukrainian/raspberry-pi-lora-greenhouse-monitoring
 repo_name: raspberry-pi-lora-greenhouse-monitoring
 edit_uri: edit/main/documentation/
