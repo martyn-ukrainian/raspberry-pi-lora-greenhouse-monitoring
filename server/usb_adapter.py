@@ -50,9 +50,11 @@ class GatewayPacket(BaseModel):
     soil_moisture: float
     rssi: int
     snr: float
-    # Є лише в -lowpower прошивці; стендовий greenhouse-node їх не шле.
+    # vbat шлють обидві прошивки (у greenhouse-node доданий для етапу 3),
+    # boot — тільки -lowpower, uptime — тільки безперервний вузол.
     vbat: float | None = None
     boot: int | None = None
+    uptime: int | None = None
     err: int = 0
     eseq: int | None = None
 
@@ -107,6 +109,8 @@ def handle_measurement(client: httpx.Client, packet: GatewayPacket, label: str) 
         "soil_moisture": packet.soil_moisture,
         "rssi": packet.rssi,
         "snr": packet.snr,
+        "vbat": packet.vbat,
+        "uptime": packet.uptime,
     }
 
     try:

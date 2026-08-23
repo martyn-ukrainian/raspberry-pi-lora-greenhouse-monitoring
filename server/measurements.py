@@ -23,6 +23,18 @@ class Measurement(SQLModel, table=True):  # type: ignore[call-arg]
     soil_moisture: float
     rssi: int | None = Field(default=None)
     snr: float | None = Field(default=None)
+    # Живлення вузла. Nullable, бо старі записи його не мають, а прошивка може
+    # не слати (наприклад, вузол на USB без батареї).
+    #
+    # Потрібне для етапу 3: опорний вузол і вузол зі сном розряджають однакові
+    # комірки поруч, і порівняти криві розряду можна лише якщо обидва значення
+    # доїжджають до БД. Раніше `vbat` приїздив у пакеті й мовчки губився —
+    # pydantic ігнорує зайві ключі.
+    vbat: float | None = Field(default=None)
+    # Секунди від старту вузла. Для опорного вузла це детектор тихого ресету:
+    # неперервність — його головна властивість, і падіння лічильника до нуля
+    # має бути видно в даних, а не здогадкою.
+    uptime: int | None = Field(default=None)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_serializer("timestamp")
