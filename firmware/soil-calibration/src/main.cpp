@@ -20,6 +20,7 @@
 #include <Arduino.h>
 #include <SSD1306Wire.h>
 #include <Adafruit_SHT31.h>
+#include <esp_system.h>
 
 // Пінаут Heltec WiFi LoRa 32 V3 — той самий, що в решті прошивок.
 #define OLED_SDA   17
@@ -30,6 +31,22 @@
 #define AIR_SDA    41
 #define AIR_SCL    42
 
+// Вбудований дільник вимірювання батареї: GPIO37 вмикає його (LOW = on),
+// GPIO1 читає. Тримати ввімкненим постійно не можна — він сам висаджує
+// батарею, тому вмикається лише на час заміру.
+//
+// GPIO1 вільний: ґрунтові канали сидять на GPIO2..GPIO5.
+#define VBAT_ADC   1
+#define VBAT_CTRL  37
+
+// Номінал дільника для V3. Звірити мультиметром на своїй платі:
+// VBAT_DIVIDER = 4.9 x (реальна напруга / показана).
+#define VBAT_DIVIDER 4.9f
+
+// Раз на 30 с досить: батарея не змінюється за секунду, а кожен замір це
+// ще й вмикання дільника.
+#define VBAT_PERIOD_MS 30000
+
 // Чотири сенсори замість трьох: GPIO2/3/4 — як у вузлі, плюс GPIO5. Усі
 // чотири на ADC1 (на ESP32-S3 це GPIO1..GPIO10), і це не дрібниця: ADC2 на
 // цій платі ділиться з Wi-Fi і при його вмиканні просто перестає читати.
@@ -38,15 +55,38 @@
 #define SOIL_3  4
 #define SOIL_4  5
 
-#define SOIL_COUNT 4
+// Скільки каналів реально задіяно. Число має відповідати ЗАЛІЗУ, а не
+// кількості пінів: непідключений ADC-вхід не читає нуль — він висить і віддає
+// шум у десятки мілівольт.
+//
+// Шкодить це не лише зайвими стовпцями. Порожній канал дає ~30 мВ, живий —
+// ~880, і графік мусить умістити обидва: вісь розтягується на 0-900, а вся
+// цікава зміна живих сенсорів (одиниці мілівольт) перетворюється на пряму
+// лінію. Дані правильні, масштаб — ні.
+//
+// Задається збіркою: -DSOIL_COUNT=4, коли підключиш решту.
+#ifndef SOIL_COUNT
+#define SOIL_COUNT 2
+#endif
 
-const int SOIL_PINS[SOIL_COUNT] = {SOIL_1, SOIL_2, SOIL_3, SOIL_4};
+#if SOIL_COUNT < 1 || SOIL_COUNT > 4
+#error "SOIL_COUNT: від 1 до 4 — стільки пінів заведено в SOIL_PINS"
+#endif
 
-// Мітки їдуть у заголовок CSV, тобто це імена стовпців у майбутній таблиці.
-// Порядок має відповідати тому, як сенсори реально встромлені у відро —
-// інакше вся різниця "v1.2 проти v2.0" перемішається. Міняти тут, коли
-// міняється розкладка на столі.
-const char *SOIL_LABELS[SOIL_COUNT] = {"v12a", "v12b", "v20a", "v20b"};
+const int SOIL_PINS[4] = {SOIL_1, SOIL_2, SOIL_3, SOIL_4};
+
+// Мітки їдуть у заголовок CSV і в labels[] пакета — це імена стовпців у
+// майбутній таблиці.
+//
+// Перші дві названі за сенсором, бо він там стоїть постійно. Останні дві —
+// ПОЗИЦІЙНО, за номером піна, і це навмисно: канал не змінюється ніколи, а
+// сенсор у ньому — постійно. Мітка, названа за сенсором, застаріває при
+// першій же заміні й починає тихо брехати.
+//
+// Саме так і сталось: до 2026-08-23 тут стояли "v12a"/"v12b" для GPIO2/GPIO3,
+// хоча фізично там уже добу були v2.0. Дані писались із правильних пінів,
+// але під чужими іменами. Історія розкладки — docs/канали-і-мітки.md.
+const char *SOIL_LABELS[4] = {"v20a", "v20b", "ch4", "ch5"};
 
 // ADC ESP32 шумить одиницями молодших розрядів, а нам треба ловити різницю
 // від 20 мл води — тобто десятки одиниць. 32 заміри на сенсор коштують
@@ -82,6 +122,16 @@ const char *SOIL_LABELS[SOIL_COUNT] = {"v12a", "v12b", "v20a", "v20b"};
 bool airPresent = false;
 unsigned long airRetryAt = 0;
 
+// Скільки читань поспіль дали NAN. Сенсор може відпасти вже ПІСЛЯ вдалого
+// старту — дюпон зачепили, шлейф ворухнули, — і тоді begin() більше ніколи
+// не викликається, а плата читає NAN до перезавантаження.
+//
+// Саме так і сталось 2026-08-23: SHT31 працював на старті, відпав через
+// кілька хвилин під час підключення батареї, і колонки air_* лишились
+// порожніми назавжди. У полі це означає втрачену температуру за весь прогін.
+int airFailStreak = 0;
+#define AIR_FAIL_LIMIT 5
+
 SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
 
 TwoWire airWire = TwoWire(1);
@@ -106,10 +156,112 @@ String cmdBuf = "";
 // перестає віддавати заміри рівно тоді, коли ти зняв живлення руками.
 bool vePowered = true;
 
-int lastRaw[SOIL_COUNT];
-int lastMv[SOIL_COUNT];
+int lastRaw[4];
+int lastMv[4];
 float lastAirT = NAN;
 float lastAirH = NAN;
+
+// Напруга батареї й груба оцінка залишку. NAN, поки не заміряно, і лишається
+// NAN на USB без батареї — "не знаємо" це не "нуль", те саме правило, що для
+// повітря.
+float lastVbat = NAN;
+int lastBatPct = -1;
+unsigned long vbatNextAt = 0;
+
+// Напрямок зміни напруги: росте -> заряджається, падає -> розряджається.
+//
+// Окремого сигналу від зарядника плата не дає, тож визначаємо за поведінкою.
+// Поріг 5 мВ за вікно: менше — це шум ADC, і індикатор блимав би туди-сюди.
+// Вікно ~2,5 хв (п'ять замірів по 30 с) — заряджання за цей час дає десятки
+// мілівольт, а розряд у роботі десь стільки ж, тільки вниз.
+#define VBAT_TREND_N 5
+#define VBAT_TREND_MV 5.0f
+float vbatHistory[VBAT_TREND_N];
+int vbatHistLen = 0;
+int batCharging = 0;   // +1 заряджається, -1 розряджається, 0 незрозуміло
+
+void updateBatteryTrend(float volts) {
+  if (vbatHistLen < VBAT_TREND_N) {
+    vbatHistory[vbatHistLen++] = volts;
+  } else {
+    for (int i = 1; i < VBAT_TREND_N; i++) vbatHistory[i - 1] = vbatHistory[i];
+    vbatHistory[VBAT_TREND_N - 1] = volts;
+  }
+  if (vbatHistLen < VBAT_TREND_N) {
+    batCharging = 0;
+    return;
+  }
+  float delta = (vbatHistory[VBAT_TREND_N - 1] - vbatHistory[0]) * 1000.0f;
+  batCharging = delta > VBAT_TREND_MV ? 1 : (delta < -VBAT_TREND_MV ? -1 : 0);
+}
+
+// Li-ion розряджається дуже нелінійно: від 4,2 до 3,7 В минає перша третина
+// ємності, а від 3,7 до 3,4 — решта дві. Лінійна шкала по напрузі показувала б
+// 50% там, де реально лишилось 15%.
+//
+// Тому не формула, а таблиця по точках типової кривої 18650 під малим
+// навантаженням. Точність ±10% — для "скільки ще протримає" досить, для
+// обліку енергії ні.
+struct BatPoint { float volts; int pct; };
+const BatPoint BAT_CURVE[] = {
+    {4.20f, 100}, {4.10f, 92}, {4.00f, 85}, {3.90f, 74}, {3.80f, 60},
+    {3.75f, 50},  {3.70f, 40}, {3.65f, 30}, {3.60f, 20}, {3.50f, 10},
+    {3.40f, 5},   {3.30f, 0},
+};
+
+int batteryPercent(float volts) {
+  if (isnan(volts)) return -1;
+  const int n = sizeof(BAT_CURVE) / sizeof(BAT_CURVE[0]);
+  if (volts >= BAT_CURVE[0].volts) return 100;
+  if (volts <= BAT_CURVE[n - 1].volts) return 0;
+  for (int i = 1; i < n; i++) {
+    if (volts >= BAT_CURVE[i].volts) {
+      const BatPoint &hi = BAT_CURVE[i - 1];
+      const BatPoint &lo = BAT_CURVE[i];
+      float k = (volts - lo.volts) / (hi.volts - lo.volts);
+      return lo.pct + (int)(k * (hi.pct - lo.pct));
+    }
+  }
+  return 0;
+}
+
+void readBattery() {
+  if ((long)(millis() - vbatNextAt) < 0) return;
+  vbatNextAt = millis() + VBAT_PERIOD_MS;
+
+  // УВАГА до полярності: на цій ревізії Heltec V3 дільник вмикається ВИСОКИМ
+// рівнем, а не низьким. Перевірено на залізі 2026-08-23:
+//   CTRL=LOW  -> 0 мВ        (дільник вимкнений)
+//   CTRL=HIGH -> 811 мВ      = 3,97 В на комірці
+//
+// Це протилежно до Vext_Ctrl (GPIO36), де LOW = увімкнено, і саме за
+// аналогією з ним тут спершу стояв LOW. Наслідок був тихий: vbat завжди
+// читався нулем, тобто прошивка мовчки вважала, що батареї нема.
+  pinMode(VBAT_CTRL, OUTPUT);
+  digitalWrite(VBAT_CTRL, HIGH);
+  delay(10);
+
+  analogSetPinAttenuation(VBAT_ADC, ADC_11db);
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; i++) mv += analogReadMilliVolts(VBAT_ADC);
+  mv /= 8;
+
+  digitalWrite(VBAT_CTRL, LOW);   // дільник назад у вимкнений стан
+
+  float volts = (mv * VBAT_DIVIDER) / 1000.0f;
+  // Нижче цього батареї просто нема — плата на USB. Показувати 0% було б
+  // брехнею: ми не розряджені, ми не на батареї.
+  if (volts < 2.5f) {
+    lastVbat = NAN;
+    lastBatPct = -1;
+    vbatHistLen = 0;
+    batCharging = 0;
+    return;
+  }
+  lastVbat = volts;
+  lastBatPct = batteryPercent(volts);
+  updateBatteryTrend(volts);
+}
 
 // ---------------------------------------------------------------------------
 // Wi-Fi: передача пачками, з радіо вимкненим під час заміру
@@ -172,10 +324,13 @@ float lastAirH = NAN;
 struct Reading {
   float elapsed;
   float waterMl;
-  int raw[SOIL_COUNT];
-  int mv[SOIL_COUNT];
+  int raw[4];
+  int mv[4];
   float airT;
   float airH;
+  float vbat;
+  int batPct;
+  int batTrend;
   char event[24];
 };
 
@@ -253,6 +408,11 @@ String buildBatchJson() {
     // "не знаємо", і вигаданий нуль поїхав би в базу як справжні 0 °C.
     if (!isnan(r.airT)) body += ",\"air_t\":" + String(r.airT, 2);
     if (!isnan(r.airH)) body += ",\"air_h\":" + String(r.airH, 2);
+    if (!isnan(r.vbat)) body += ",\"vbat\":" + String(r.vbat, 2);
+    if (r.batPct >= 0) {
+      body += ",\"bat_pct\":" + String(r.batPct);
+      body += ",\"bat_trend\":" + String(r.batTrend);
+    }
     body += "}";
   }
 
@@ -354,6 +514,9 @@ void collectSample(float elapsed, float waterMl, const String &event) {
   }
   r.airT = lastAirT;
   r.airH = lastAirH;
+  r.vbat = lastVbat;
+  r.batPct = lastBatPct;
+  r.batTrend = batCharging;
   strncpy(r.event, event.c_str(), sizeof(r.event) - 1);
   r.event[sizeof(r.event) - 1] = 0;
   batchLen++;
@@ -435,6 +598,9 @@ void printHelp() {
 #ifdef AGRO_WIFI
   Serial.println("#   f         - віддати недобрану пачку в хмару негайно");
 #endif
+  Serial.println("#   i         - скан шини I2C: хто відповідає");
+  Serial.println("#   b         - сире значення дільника батареї");
+  Serial.println("#   l         - які лінії SHT31 живі");
   Serial.println("#   h         - перевидати заголовок CSV");
   Serial.println("#   r         - новий прогін: обнулити час і воду");
   Serial.println("#   p 500     - період заміру, мс");
@@ -457,7 +623,9 @@ void printHeader() {
     header += "," + String(SOIL_LABELS[i]) + "_raw";
     header += "," + String(SOIL_LABELS[i]) + "_mv";
   }
-  header += ",air_t,air_h";
+  // vbat/bat_pct — В КІНЕЦЬ, а не всередину: інструменти читають сенсорні
+  // колонки за індексом, і вставка посеред рядка тихо зсунула б їх усі.
+  header += ",air_t,air_h,vbat,bat_pct,bat_trend";
   Serial.println(header);
 }
 
@@ -483,11 +651,53 @@ void readSoil(int index) {
 // сенсу: begin() тримає шину на час спроби, а сенсор або є, або нема.
 #define AIR_RETRY_MS 10000
 
+// Розчистити зависла шину I2C.
+//
+// Раб може утримувати SDA притиснутою до землі, якщо обмін урвався посеред
+// байта — від завади, просадки живлення або смикнутого дроту. Шина стає
+// мертвою, і begin() на ній провалюється так само, як читання: майстер бачить
+// зайняту лінію й не може навіть видати START.
+//
+// Лікується не скиданням прапорців, а фізично: дев'ять тактів на SCL. Раб
+// дотискає свій байт, відпускає SDA, після чого майстер видає STOP і шина
+// вільна. Дев'ять — бо байт це вісім бітів плюс такт підтвердження.
+//
+// SHT31 у нас на постійних 3V3 і живлення йому не зняти, тож це ЄДИНИЙ спосіб
+// повернути його без фізичного від'єднання.
+void recoverI2C() {
+  airWire.end();
+
+  pinMode(AIR_SCL, OUTPUT);
+  pinMode(AIR_SDA, INPUT_PULLUP);
+  for (int i = 0; i < 9; i++) {
+    digitalWrite(AIR_SCL, HIGH);
+    delayMicroseconds(5);
+    digitalWrite(AIR_SCL, LOW);
+    delayMicroseconds(5);
+  }
+
+  // STOP: SDA відпускається у високий при високому SCL.
+  pinMode(AIR_SDA, OUTPUT);
+  digitalWrite(AIR_SDA, LOW);
+  digitalWrite(AIR_SCL, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(AIR_SDA, HIGH);
+  delayMicroseconds(5);
+
+  pinMode(AIR_SDA, INPUT_PULLUP);
+  pinMode(AIR_SCL, INPUT_PULLUP);
+  airWire.begin(AIR_SDA, AIR_SCL);
+}
+
 void tryFindAir() {
   if (airPresent || (long)(millis() - airRetryAt) < 0) {
     return;
   }
   airRetryAt = millis() + AIR_RETRY_MS;
+
+  // Спершу розчищаємо шину: якщо сенсор тримає SDA, begin() без цього не
+  // має шансів.
+  recoverI2C();
 
   if (sht31.begin(0x44)) {
     airPresent = true;
@@ -501,10 +711,25 @@ void sample() {
   }
 
   tryFindAir();
+  readBattery();
 
   if (airPresent) {
     lastAirT = sht31.readTemperature();
     lastAirH = sht31.readHumidity();
+
+    // Кілька NAN поспіль — сенсор зник із шини. Скидаємо прапорець, і
+    // tryFindAir() почне пробувати begin() знову: щойно контакт повернеться,
+    // колонки заповняться самі, без перезавантаження.
+    if (isnan(lastAirT) || isnan(lastAirH)) {
+      if (++airFailStreak >= AIR_FAIL_LIMIT) {
+        airPresent = false;
+        airFailStreak = 0;
+        airRetryAt = millis();
+        Serial.println("# SHT31 замовк — шукаю знову кожні 10 с");
+      }
+    } else {
+      airFailStreak = 0;
+    }
   } else {
     // Порожньо, а не нуль: відсутній сенсор це "не знаємо", і вигаданий нуль
     // поїхав би в CSV як справжні 0 °C.
@@ -526,6 +751,9 @@ void sample() {
   // сильніше, ніж пропуск.
   line += "," + (isnan(lastAirT) ? String("") : String(lastAirT, 2));
   line += "," + (isnan(lastAirH) ? String("") : String(lastAirH, 2));
+  line += "," + (isnan(lastVbat) ? String("") : String(lastVbat, 2));
+  line += "," + (lastBatPct < 0 ? String("") : String(lastBatPct));
+  line += "," + (lastBatPct < 0 ? String("") : String(batCharging));
 
   Serial.println(line);
 
@@ -538,17 +766,73 @@ void sample() {
   pendingEvent = "";
 }
 
+// Класичний індикатор у правому верхньому куті: корпус, носик, три поділки.
+//
+// Три, а не поступова смужка: на монохромному екрані 128x64 поділка — це 4
+// пікселі, і плавне заповнення читалось би гірше за дискретне. Три стани
+// (повна / половина / остання) — це рівно те, що потрібно вирішити в полі:
+// працювати далі, готувати заміну, зупинятись.
+//
+// Нижче 20% корпус лишається порожнім — це і є попередження, помітне здалеку
+// краще за будь-який текст.
+void drawBattery(int pct) {
+  const int w = 22, h = 10;
+  const int x = 128 - w - 3;   // 3 пікселі під носик справа
+  const int y = 1;
+
+  display.drawRect(x, y, w, h);                 // корпус
+  display.fillRect(x + w, y + 3, 3, h - 6);     // носик
+
+  // Три поділки по 5 пікселів із проміжком.
+  int bars = pct > 66 ? 3 : (pct > 33 ? 2 : (pct > 10 ? 1 : 0));
+  for (int i = 0; i < bars; i++) {
+    display.fillRect(x + 2 + i * 6, y + 2, 5, h - 4);
+  }
+
+  // Заряджання — риска впоперек корпусу. Блискавку в 10 пікселів висоти не
+  // намалюєш розбірливо, а риска однозначна й видна здалеку.
+  if (batCharging > 0) {
+    display.drawLine(x + 3, y + h - 2, x + w - 3, y + 2);
+  }
+
+  // Відсотки лівіше корпусу: індикатор каже "приблизно", число — точно.
+  display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  display.drawString(x - 3, 0, String(pct) + "%");
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+}
+
 void showOled() {
   if (!vePowered) {
     return;
   }
   display.clear();
 
-  String top = "H2O " + String(waterMl, 0) + " ml";
+  // Води тут нема навмисно: у польовому режимі доливи позначаються з телефона,
+  // плата про них не знає, і рядок вічно показував би 0 мл. Замість нього —
+  // стан мережі, який у полі якраз і треба бачити: чи доїжджають дані.
+  String top;
+#ifdef AGRO_WIFI
+  top = (WiFi.status() == WL_CONNECTED) ? "WiFi OK" : "WiFi --";
+  if (pendingLen > 0) {
+    top += " q" + String(pendingLen);   // скільки пачок чекає в черзі
+  }
+#else
+  top = "USB";
+#endif
   if (!isnan(lastAirT)) {
-    top += "   " + String(lastAirT, 1) + "C";
+    top += "  " + String(lastAirT, 1) + "C";
   }
   display.drawString(0, 0, top);
+
+  // Заряд — окремо, у правому верхньому куті. У полі екран дивляться саме
+  // щоб дізнатись, чи доживе прогін до кінця, тож це число не має губитись
+  // серед решти рядка.
+  //
+  // Нічого не малюємо на USB: там lastBatPct = -1, і "0%" читалось би як
+  // "розряджено вщент" замість "ми не на батареї".
+  if (lastBatPct >= 0) {
+    drawBattery(lastBatPct);
+  }
 
   for (int i = 0; i < SOIL_COUNT; i++) {
     display.drawString(0, 12 + i * 13,
@@ -681,6 +965,110 @@ void handleCommand(const String &raw) {
       flushBatch();
       break;
 #endif
+    case 'l': {
+      // Який саме дріт SHT31 відпав. ('w' зайнято доливом води.)
+      //
+      // На платі сенсора стоять підтягуючі резистори від SDA і SCL до його ж
+      // VIN. Це й використовуємо: прижимаємо лінію до нуля, відпускаємо і
+      // дивимось, чи підніметься вона сама. Підніметься — підтяжка жива,
+      // отже і дріт, і живлення сенсора на місці.
+      //
+      // Внутрішні підтяжки ESP32 при цьому ВИМКНЕНІ, інакше лінія піднімалась
+      // би завжди й тест нічого не розрізняв.
+      airWire.end();
+      bool up[2];
+      const int pins[2] = {AIR_SDA, AIR_SCL};
+      for (int k = 0; k < 2; k++) {
+        pinMode(pins[k], OUTPUT);
+        digitalWrite(pins[k], LOW);
+        delayMicroseconds(50);
+        pinMode(pins[k], INPUT);      // саме INPUT, без PULLUP
+        delayMicroseconds(50);
+        up[k] = digitalRead(pins[k]);
+      }
+      airWire.begin(AIR_SDA, AIR_SCL);
+
+      Serial.printf("# SDA(GPIO%d): %s   SCL(GPIO%d): %s\n",
+                    AIR_SDA, up[0] ? "піднялась" : "лежить",
+                    AIR_SCL, up[1] ? "піднялась" : "лежить");
+      if (up[0] && up[1]) {
+        Serial.println("# обидві лінії й VIN на місці -> перевіряй ЗЕМЛЮ");
+      } else if (!up[0] && !up[1]) {
+        Serial.println("# жодна не піднялась -> нема VIN: живлення сенсора не доходить");
+      } else {
+        Serial.printf("# відпав %s\n", up[0] ? "SCL" : "SDA");
+      }
+      break;
+    }
+    case 'b': {
+      // Сире значення з дільника батареї, без порогу 2,5 В.
+      //
+      // У штатному виводі все нижче порогу подається як "нема батареї" —
+      // інакше плата на USB показувала б 0%, тобто "розряджено вщент".
+      // Але при діагностиці треба бачити саме сире число: воно розрізняє
+      // "нічого не підключено" (близько нуля) від "комірка є, але сіла"
+      // (пара вольтів).
+      // Полярність ADC_Ctrl на Heltec V3 залежить від ревізії плати: на одних
+      // дільник вмикається LOW, на інших HIGH. Тому пробуємо обидві, а ще —
+      // пін відпущений у високий імпеданс, як контроль.
+      //
+      // Рівно 0 мВ в усіх трьох станах означає, що справа не в полярності:
+      // на вході ADC не було б навіть наводки.
+      analogSetPinAttenuation(VBAT_ADC, ADC_11db);
+      uint32_t probe[3];
+      const char *how[3] = {"CTRL=LOW", "CTRL=HIGH", "CTRL відпущено"};
+      for (int mode = 0; mode < 3; mode++) {
+        if (mode == 2) {
+          pinMode(VBAT_CTRL, INPUT);
+        } else {
+          pinMode(VBAT_CTRL, OUTPUT);
+          digitalWrite(VBAT_CTRL, mode == 0 ? LOW : HIGH);
+        }
+        delay(20);
+        uint32_t acc = 0;
+        for (int k = 0; k < 16; k++) acc += analogReadMilliVolts(VBAT_ADC);
+        probe[mode] = acc / 16;
+        Serial.printf("#   %-16s -> %4lu мВ на піні = %.2f В\n",
+                      how[mode], (unsigned long)probe[mode],
+                      probe[mode] * VBAT_DIVIDER / 1000.0f);
+      }
+      pinMode(VBAT_CTRL, OUTPUT);
+      digitalWrite(VBAT_CTRL, HIGH);
+
+      uint32_t mv = probe[0] > probe[1] ? probe[0] : probe[1];
+      float volts = (mv * VBAT_DIVIDER) / 1000.0f;
+      Serial.printf("# VBAT: на піні %lu мВ -> %.2f В (дільник %.1f)\n",
+                    (unsigned long)mv, volts, VBAT_DIVIDER);
+      Serial.println(volts < 0.3f  ? "#   ~0 — на роз'ємі нічого немає"
+                     : volts < 2.5f ? "#   є напруга, але дуже низька: комірка сіла або поганий контакт"
+                                    : "#   батарея на місці");
+      if (batCharging > 0)      Serial.println("#   напруга росте — ЗАРЯДЖАЄТЬСЯ");
+      else if (batCharging < 0) Serial.println("#   напруга падає — розряджається");
+      break;
+    }
+    case 'i': {
+      // Скан шини I2C: пройти всі адреси й подивитись, хто відповідає.
+      //
+      // Це припиняє гадання. Пошук наосліп («а може SDA і SCL місцями?»)
+      // коштував нам чотирьох спроб; скан дає відповідь за секунду:
+      //   0x44 відповідає  -> сенсор на шині, справа в читанні
+      //   нікого           -> обрив, живлення або переплутані лінії
+      recoverI2C();
+      Serial.println("# скан I2C:");
+      int found = 0;
+      for (uint8_t addr = 1; addr < 127; addr++) {
+        airWire.beginTransmission(addr);
+        if (airWire.endTransmission() == 0) {
+          Serial.printf("#   0x%02X відповідає%s\n", addr,
+                        addr == 0x44 ? "  <- SHT31" : "");
+          found++;
+        }
+      }
+      if (found == 0) {
+        Serial.println("#   нікого. Перевір живлення, землю й лінії SDA/SCL");
+      }
+      break;
+    }
     case 'h':
       // Скрипт, який під'єднався до вже запущеної плати, заголовка не бачив —
       // а без нього не знає, який стовпець це який сенсор. `r` для цього не
@@ -735,8 +1123,33 @@ void readSerialCommands() {
   }
 }
 
+// Чому плата перезавантажилась минулого разу. Причина лежить в апаратному
+// регістрі й переживає саме скидання, тож це єдиний надійний спосіб
+// відрізнити просадку живлення від зависання коду.
+//
+// BROWNOUT при підключеній батареї майже завжди означає одне: USB не тягне
+// заряджання комірки разом з імпульсами Wi-Fi (500 мА заряду + 300 мА
+// передачі + 80 мА плати перевищують те, що дає порт).
+void reportResetReason() {
+  const char *why;
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  why = "подано живлення"; break;
+    case ESP_RST_SW:       why = "програмне (заливка)"; break;
+    case ESP_RST_BROWNOUT: why = "ПРОСАДКА ЖИВЛЕННЯ — не вистачає струму"; break;
+    case ESP_RST_PANIC:    why = "ПАНІКА — збій у коді"; break;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:      why = "WATCHDOG — код завис"; break;
+    case ESP_RST_DEEPSLEEP: why = "вихід зі сну"; break;
+    default:               why = "інше"; break;
+  }
+  Serial.printf("# причина старту: %s\n", why);
+}
+
 void setup() {
   Serial.begin(115200);
+  delay(200);
+  reportResetReason();
   initDisplay();
   display.clear();
   display.drawString(0, 0, "SOIL CALIBRATION");
