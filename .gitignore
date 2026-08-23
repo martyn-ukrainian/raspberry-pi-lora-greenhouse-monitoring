@@ -51,3 +51,7 @@ scripts/pi.env
 .env
 .env.*
 !.env.example
+
+# MkDocs
+site/
+.venv-docs/

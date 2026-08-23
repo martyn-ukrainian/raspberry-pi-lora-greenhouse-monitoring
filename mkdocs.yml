@@ -1,0 +1,125 @@
+site_name: Agro — моніторинг теплиць
+site_description: LoRa-моніторинг тепличного господарства на Heltec V3 і Raspberry Pi
+site_author: martyn-ukrainian
+site_url: https://martyn-ukrainian.github.io/raspberry-pi-lora-greenhouse-monitoring/
+repo_url: https://github.com/martyn-ukrainian/raspberry-pi-lora-greenhouse-monitoring
+repo_name: raspberry-pi-lora-greenhouse-monitoring
+edit_uri: edit/main/documentation/
+copyright: © 2026 Agro
+
+docs_dir: documentation
+site_dir: site
+
+# README.md — обкладинка для GitHub, на сайті її замінює uk/index.md
+exclude_docs: |
+  README.md
+
+theme:
+  name: material
+  language: uk
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: light green
+      toggle:
+        icon: material/weather-night
+        name: Темна тема
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: light green
+      toggle:
+        icon: material/weather-sunny
+        name: Світла тема
+  features:
+    - navigation.tracking
+    - navigation.top
+    - navigation.indexes
+    - navigation.footer
+    - toc.follow
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search:
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      languages:
+        - locale: uk
+          name: Українська
+          default: true
+          build: true
+        # Перекладів ще немає. Коли в documentation/en/ зʼявиться контент —
+        # build: true, і перемикач мов увімкнеться сам.
+        - locale: en
+          name: English
+          build: false
+          nav_translations:
+            Головна: Home
+            Довідник: Reference
+            Карта проєкту: Roadmap
+            Огляд: Overview
+            Архітектура: Architecture
+            Залізо: Hardware
+            Прошивки: Firmware
+            Сервер: Server
+            Клієнти: Clients
+            Хмарна телеметрія: Cloud telemetry
+            Експлуатація: Operations
+            Робота: Work
+            Дослідження: Research
+            Гайди: Guides
+            Журнал рішень: Decision log
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      permalink_title: Посилання на розділ
+      # Без цього кириличні заголовки дають порожні id (_1, _2) і всі
+      # посилання-якорі всередині документів ламаються.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Головна: index.md
+  - Довідник:
+      - Карта проєкту: 00-roadmap.md
+      - Огляд: 01-overview.md
+      - Архітектура: 02-architecture.md
+      - Залізо: 03-hardware.md
+      - Прошивки: 04-firmware.md
+      - Сервер: 05-server.md
+      - Клієнти: 06-clients.md
+      - Хмарна телеметрія: 07-cloud-telemetry.md
+      - Експлуатація: 08-operations.md
+  - Робота:
+      - Дослідження: research/index.md
+      - Гайди:
+          - guides/index.md
+          - Калібрувальний стенд: guides/soil-calibration-bench.md
+      - Журнал рішень: decisions.md
