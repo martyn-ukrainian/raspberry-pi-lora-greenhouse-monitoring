@@ -52,6 +52,8 @@ class Sample(BaseModel):
     mv: list[int]
     air_t: float | None = None        # відсутнє = сенсора нема, НЕ 0
     air_h: float | None = None
+    vbat: float | None = None         # відсутнє = живлення від USB
+    bat_pct: int | None = Field(default=None, ge=0, le=100)
 
 
 class Batch(BaseModel):
@@ -149,13 +151,14 @@ def ingest(batch: Batch) -> dict:
             cur.executemany(
                 """
                 INSERT INTO samples
-                    (device, seq, t, water_ml, event, raw, mv, air_t, air_h, received_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (device, seq, t, water_ml, event, raw, mv, air_t, air_h,
+                     vbat, bat_pct, received_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 [
                     # Пастка 1: None лишається NULL, жодних `or 0`.
                     (batch.device, batch.seq, s.t, s.water_ml, s.event,
-                     s.raw, s.mv, s.air_t, s.air_h, now)
+                     s.raw, s.mv, s.air_t, s.air_h, s.vbat, s.bat_pct, now)
                     for s in batch.samples
                 ],
             )
@@ -252,7 +255,8 @@ def live(device: str, n: int = Query(240, ge=1, le=5000)) -> dict:
         labels, last_seen = dev
         cur.execute(
             """
-            SELECT t, water_ml, event, raw, mv, air_t, air_h, received_at, seq
+            SELECT t, water_ml, event, raw, mv, air_t, air_h, received_at, seq,
+                   vbat, bat_pct
             FROM samples WHERE device = %s
             ORDER BY received_at DESC, seq DESC, t DESC
             LIMIT %s
@@ -274,7 +278,8 @@ def live(device: str, n: int = Query(240, ge=1, le=5000)) -> dict:
     now = datetime.now(timezone.utc)
     samples = [
         {"t": r[0], "water_ml": r[1], "event": r[2], "raw": r[3], "mv": r[4],
-         "air_t": r[5], "air_h": r[6], "received_at": r[7].isoformat(), "seq": r[8]}
+         "air_t": r[5], "air_h": r[6], "received_at": r[7].isoformat(), "seq": r[8],
+         "vbat": r[9], "bat_pct": r[10]}
         for r in rows
     ]
     return {
@@ -319,7 +324,7 @@ def export_csv(
         labels = dev[0]
         cur.execute(
             """
-            SELECT t, water_ml, event, raw, mv, air_t, air_h, received_at
+            SELECT t, water_ml, event, raw, mv, air_t, air_h, vbat, bat_pct, received_at
             FROM samples
             WHERE device = %s
               AND (%s::timestamptz IS NULL OR received_at >= %s)
@@ -336,16 +341,18 @@ def export_csv(
     header = ["elapsed_s", "water_ml", "event"]
     for label in labels:
         header += [f"{label}_raw", f"{label}_mv"]
-    header += ["air_t", "air_h", "received_at"]
+    header += ["air_t", "air_h", "vbat", "bat_pct", "received_at"]
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(header)
-    for t, water, event, raw, mv, air_t, air_h, received in rows:
+    for t, water, event, raw, mv, air_t, air_h, vbat, bat_pct, received in rows:
         row = [f"{t:.1f}", f"{water:.1f}", event or ""]
         for r, m in zip(raw, mv):
             row += [r, m]
         # Пастка 1 у зворотний бік: NULL → порожня клітинка, як у USB-CSV.
         row += ["" if air_t is None else f"{air_t:.2f}",
                 "" if air_h is None else f"{air_h:.2f}",
+                "" if vbat is None else f"{vbat:.2f}",
+                "" if bat_pct is None else str(bat_pct),
                 received.isoformat(timespec="seconds")]
         w.writerow(row)
 

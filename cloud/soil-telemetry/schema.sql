@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS samples (
     received_at timestamptz NOT NULL
 );
 
+-- Батарея: є лише на акумуляторі, на USB поля не надсилаються → NULL.
+-- ALTER … IF NOT EXISTS, бо таблиця могла бути створена до появи полів.
+ALTER TABLE samples ADD COLUMN IF NOT EXISTS vbat    real;
+ALTER TABLE samples ADD COLUMN IF NOT EXISTS bat_pct smallint;
+
 -- Сторінка читає «останні N по платі», експорт — діапазон за часом.
 CREATE INDEX IF NOT EXISTS samples_device_received_idx
     ON samples (device, received_at);
