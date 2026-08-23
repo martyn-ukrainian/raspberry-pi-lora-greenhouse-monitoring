@@ -383,6 +383,27 @@ def pour(p: Pour) -> dict:
     return {"ok": True, "id": pid, "created_at": created.isoformat()}
 
 
+@app.post("/api/pour/clear", dependencies=[Auth])
+def pour_clear(p: dict) -> dict:
+    """Скасувати всі недоставлені доливи пристрою. Потрібно, коли долив
+    натиснули помилково, або коли в черзі накопичилось тестове сміття, яке
+    інакше майбутня прошивка застосує пачкою. Позначаємо delivered_at (слід у
+    таблиці лишається), а не видаляємо."""
+    device = p.get("device")
+    if not device:
+        raise HTTPException(422, "потрібен device")
+    now = datetime.now(timezone.utc)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE pours SET delivered_at = %s "
+            "WHERE device = %s AND delivered_at IS NULL",
+            (now, device),
+        )
+        n = cur.rowcount
+        conn.commit()
+    return {"ok": True, "cleared": n}
+
+
 @app.get("/api/health")
 def health() -> JSONResponse:
     try:
