@@ -144,8 +144,16 @@ void setup() {
 // Дільник вмикається тільки на час заміру: увімкнений постійно, він сам
 // висаджує батарею.
 float readBatteryVolts() {
+  // УВАГА до полярності: на цій ревізії Heltec V3 дільник вмикається ВИСОКИМ
+// рівнем, а не низьким. Перевірено на залізі 2026-08-23:
+//   CTRL=LOW  -> 0 мВ        (дільник вимкнений)
+//   CTRL=HIGH -> 811 мВ      = 3,97 В на комірці
+//
+// Це протилежно до Vext_Ctrl (GPIO36), де LOW = увімкнено, і саме за
+// аналогією з ним тут спершу стояв LOW. Наслідок був тихий: vbat завжди
+// читався нулем, тобто прошивка мовчки вважала, що батареї нема.
   pinMode(VBAT_CTRL, OUTPUT);
-  digitalWrite(VBAT_CTRL, LOW);
+  digitalWrite(VBAT_CTRL, HIGH);
   delay(10);
 
   analogSetPinAttenuation(VBAT_ADC, ADC_11db);
@@ -155,7 +163,7 @@ float readBatteryVolts() {
   }
   mv /= 8;
 
-  digitalWrite(VBAT_CTRL, HIGH);
+  digitalWrite(VBAT_CTRL, LOW);
   return (mv * VBAT_DIVIDER) / 1000.0f;
 }
 
