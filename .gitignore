@@ -45,3 +45,9 @@ client/.env.local
 
 # scripts
 scripts/pi.env
+
+# Рядки підключення до бази й інші бойові секрети. .env.prod у cloud/ містить
+# DATABASE_URL з паролем Neon — у публічному репозиторії йому не місце.
+.env
+.env.*
+!.env.example

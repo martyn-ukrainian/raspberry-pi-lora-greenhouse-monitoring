@@ -74,6 +74,8 @@ const char *SOIL_LABELS[SOIL_COUNT] = {"v12a", "v12b", "v20a", "v20b"};
 
 #define CMD_MAX_LEN 64
 
+
+
 // Чи відповів SHT31 на шині. Не константа: сенсор можна підключити до вже
 // запущеної плати, і прошивка має його підхопити без перезавантаження —
 // у полі перепрошивати заради одного дроту незручно.
@@ -108,6 +110,286 @@ int lastRaw[SOIL_COUNT];
 int lastMv[SOIL_COUNT];
 float lastAirT = NAN;
 float lastAirH = NAN;
+
+// ---------------------------------------------------------------------------
+// Wi-Fi: передача пачками, з радіо вимкненим під час заміру
+// ---------------------------------------------------------------------------
+// Вмикається прапорцем -DAGRO_WIFI (середовище wifi_field). Без нього нижчий
+// код не потрапляє у прошивку взагалі, і поведінка по USB не міняється ні на
+// байт — USB лишається ОПОРНИМ трактом, з яким звіряють хмару.
+//
+// ГОЛОВНЕ РІШЕННЯ ТУТ — режим BURST. Передача Wi-Fi це імпульси 200-300 мА,
+// які просаджують шину живлення, а від неї живиться ADC. Наш шум зараз
+// σ = 0,6 мВ, і саме він дає роздільність 0,15 мл води — тобто просадка
+// цілком може коштувати нам приладу.
+//
+// Тому за замовчуванням радіо ВИМКНЕНЕ під час замірів і вмикається лише на
+// відправку пачки:
+//
+//     [Wi-Fi OFF] замір ×N  ->  [Wi-Fi ON] POST  ->  [OFF] ...
+//
+// Імпульси фізично рознесені із заміром у часі, тож потрапити в нього не
+// можуть. Ціна — пауза на переконнект (1-3 с) раз на пачку; вона видна в
+// даних як розрив elapsed_s, а не як тихо зіпсовані числа.
+//
+// Режим ALWAYS (радіо тримається піднятим) існує заради фази 0: порівняти
+// σ у двох режимах і дізнатись, чи взагалі потрібен BURST на наших платах.
+
+#ifdef AGRO_WIFI
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+
+#ifndef WIFI_SSID
+#error "AGRO_WIFI без -DWIFI_SSID: облікові дані передаються прапорцем, у репозиторії їм не місце"
+#endif
+#ifndef WIFI_PASS
+#error "AGRO_WIFI без -DWIFI_PASS"
+#endif
+#ifndef INGEST_URL
+#error "AGRO_WIFI без -DINGEST_URL"
+#endif
+#ifndef INGEST_TOKEN
+#define INGEST_TOKEN ""
+#endif
+
+// Скільки замірів накопичуємо перед відправкою. 30 при періоді 1 с = пачка
+// раз на 30 секунд.
+#ifndef BATCH_SIZE
+#define BATCH_SIZE 30
+#endif
+
+// Скільки пачок тримати, якщо мережа впала. У теплиці зв'язок рватиметься, і
+// кожен втрачений шматок — це діра в кривій. 4 пачки = 2 хвилини історії;
+// більше не тримаємо, бо RAM потрібна ще й на JSON.
+#ifndef QUEUE_BATCHES
+#define QUEUE_BATCHES 4
+#endif
+
+#define WIFI_CONNECT_TIMEOUT_MS 12000
+#define HTTP_TIMEOUT_MS 8000
+
+struct Reading {
+  float elapsed;
+  float waterMl;
+  int raw[SOIL_COUNT];
+  int mv[SOIL_COUNT];
+  float airT;
+  float airH;
+  char event[24];
+};
+
+Reading batch[BATCH_SIZE];
+int batchLen = 0;
+
+// Черга — це просто готові JSON-тіла, які не вдалось віддати. Тримати їх
+// рядками простіше, ніж переливати структури: пачка вже сформована, і
+// повторна відправка не має її перебудовувати.
+String pending[QUEUE_BATCHES];
+int pendingLen = 0;
+
+uint32_t batchSeq = 0;
+String deviceId;
+
+void wifiRadioOff() {
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
+}
+
+bool wifiRadioUp() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  unsigned long until = millis() + WIFI_CONNECT_TIMEOUT_MS;
+  while (WiFi.status() != WL_CONNECTED && (long)(millis() - until) < 0) {
+    delay(100);
+  }
+  return WiFi.status() == WL_CONNECTED;
+}
+
+String jsonEscape(const char *s) {
+  String out;
+  for (const char *p = s; *p; p++) {
+    if (*p == '"' || *p == '\\') {
+      out += '\\';
+    }
+    out += *p;
+  }
+  return out;
+}
+
+// Формат навмисно повторює колонки CSV: дані з двох трактів мають бути
+// зіставні поле в поле, інакше фаза 4 (звірка USB проти хмари) втрачає сенс.
+String buildBatchJson() {
+  String body;
+  body.reserve(256 + (size_t)batchLen * 160);
+
+  body += "{\"device\":\"" + deviceId + "\"";
+  body += ",\"seq\":" + String(batchSeq);
+  body += ",\"labels\":[";
+  for (int i = 0; i < SOIL_COUNT; i++) {
+    if (i) body += ",";
+    body += "\"" + String(SOIL_LABELS[i]) + "\"";
+  }
+  body += "],\"samples\":[";
+
+  for (int i = 0; i < batchLen; i++) {
+    const Reading &r = batch[i];
+    if (i) body += ",";
+    body += "{\"t\":" + String(r.elapsed, 1);
+    body += ",\"water_ml\":" + String(r.waterMl, 1);
+    if (r.event[0]) {
+      body += ",\"event\":\"" + jsonEscape(r.event) + "\"";
+    }
+    body += ",\"raw\":[";
+    for (int k = 0; k < SOIL_COUNT; k++) { if (k) body += ","; body += String(r.raw[k]); }
+    body += "],\"mv\":[";
+    for (int k = 0; k < SOIL_COUNT; k++) { if (k) body += ","; body += String(r.mv[k]); }
+    body += "]";
+    // Порожньо, а не нуль — те саме правило, що в CSV: відсутній сенсор це
+    // "не знаємо", і вигаданий нуль поїхав би в базу як справжні 0 °C.
+    if (!isnan(r.airT)) body += ",\"air_t\":" + String(r.airT, 2);
+    if (!isnan(r.airH)) body += ",\"air_h\":" + String(r.airH, 2);
+    body += "}";
+  }
+
+  body += "]}";
+  return body;
+}
+
+bool postBody(const String &body) {
+  // Клієнт обирається за схемою URL: https:// для хмари, http:// для
+  // приймача в локальній мережі (фаза 0 і звірка фази 4 — tools/ingest_sink.py).
+  // WiFiClientSecure на http-адресі мовчки провалить TLS-рукостискання, і
+  // виглядало б це як «сервер не відповідає».
+  static const bool secure = strncmp(INGEST_URL, "https://", 8) == 0;
+  WiFiClient plain;
+  WiFiClientSecure tls;
+  // Без перевірки сертифіката: тримати кореневі CA у прошивці й оновлювати їх
+  // при кожній ротації — окрема морока, а тут телеметрія калібрування, не
+  // секрети. Токен у заголовку захищає endpoint від чужих записів.
+  tls.setInsecure();
+  WiFiClient &client = secure ? static_cast<WiFiClient &>(tls) : plain;
+
+  HTTPClient http;
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  if (!http.begin(client, INGEST_URL)) {
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  if (strlen(INGEST_TOKEN) > 0) {
+    http.addHeader("Authorization", "Bearer " INGEST_TOKEN);
+  }
+
+  int code = http.POST(body);
+  http.end();
+
+  Serial.printf("# POST %d, %u Б\n", code, (unsigned)body.length());
+  return code >= 200 && code < 300;
+}
+
+void queuePush(const String &body) {
+  if (pendingLen < QUEUE_BATCHES) {
+    pending[pendingLen++] = body;
+    return;
+  }
+  // Черга повна — викидаємо НАЙСТАРІШУ. Свіжі дані цінніші: калібрування
+  // читається по кінцю кривої, а не по її початку.
+  Serial.println("# черга переповнена, найстаріша пачка втрачена");
+  for (int i = 1; i < QUEUE_BATCHES; i++) {
+    pending[i - 1] = pending[i];
+  }
+  pending[QUEUE_BATCHES - 1] = body;
+}
+
+void flushBatch() {
+  if (batchLen == 0) {
+    return;
+  }
+  String body = buildBatchJson();
+  batchSeq++;
+  batchLen = 0;
+
+  if (!wifiRadioUp()) {
+    Serial.println("# Wi-Fi не піднявся — пачка в чергу");
+    queuePush(body);
+    return;
+  }
+
+  // Спершу борг, потім свіже: інакше при нестабільній мережі черга ніколи не
+  // розсмокчеться.
+  int sent = 0;
+  while (sent < pendingLen && postBody(pending[sent])) {
+    sent++;
+  }
+  if (sent > 0) {
+    for (int i = sent; i < pendingLen; i++) {
+      pending[i - sent] = pending[i];
+    }
+    pendingLen -= sent;
+  }
+
+  if (!postBody(body)) {
+    queuePush(body);
+  }
+
+#ifndef AGRO_WIFI_ALWAYS
+  wifiRadioOff();
+#endif
+}
+
+void collectSample(float elapsed, float waterMl, const String &event) {
+  if (batchLen >= BATCH_SIZE) {
+    return;
+  }
+  Reading &r = batch[batchLen];
+  r.elapsed = elapsed;
+  r.waterMl = waterMl;
+  for (int i = 0; i < SOIL_COUNT; i++) {
+    r.raw[i] = lastRaw[i];
+    r.mv[i] = lastMv[i];
+  }
+  r.airT = lastAirT;
+  r.airH = lastAirH;
+  strncpy(r.event, event.c_str(), sizeof(r.event) - 1);
+  r.event[sizeof(r.event) - 1] = 0;
+  batchLen++;
+
+  if (batchLen >= BATCH_SIZE) {
+    flushBatch();
+  }
+}
+
+void wifiSetup() {
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char buf[18];
+  snprintf(buf, sizeof(buf), "%02x%02x%02x%02x%02x%02x",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  deviceId = String(buf);
+
+  Serial.printf("# Wi-Fi: пристрій %s, пачка %d, режим %s\n",
+                deviceId.c_str(), BATCH_SIZE,
+#ifdef AGRO_WIFI_ALWAYS
+                "ALWAYS (радіо не вимикається — тільки для фази 0)"
+#else
+                "BURST (радіо вимкнене під час заміру)"
+#endif
+  );
+  if (wifiRadioUp()) {
+    Serial.print("# Wi-Fi підключено, IP ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("# Wi-Fi недоступний — пишу тільки в USB, пачки в чергу");
+  }
+#ifndef AGRO_WIFI_ALWAYS
+  wifiRadioOff();
+#endif
+}
+#endif  // AGRO_WIFI
 
 void powerOnVext() {
   pinMode(VEXT_CTRL, OUTPUT);
@@ -150,6 +432,9 @@ void printHelp() {
   Serial.println("#   s         - мітка wet_ref (сенсор у воді)");
   Serial.println("#   c 30 60   - крива прогріву: вікно 30 с після 60 с без живлення");
   Serial.println("#   x / o     - зняти / подати живлення сенсорів (Ve)");
+#ifdef AGRO_WIFI
+  Serial.println("#   f         - віддати недобрану пачку в хмару негайно");
+#endif
   Serial.println("#   h         - перевидати заголовок CSV");
   Serial.println("#   r         - новий прогін: обнулити час і воду");
   Serial.println("#   p 500     - період заміру, мс");
@@ -243,6 +528,13 @@ void sample() {
   line += "," + (isnan(lastAirH) ? String("") : String(lastAirH, 2));
 
   Serial.println(line);
+
+#ifdef AGRO_WIFI
+  // Той самий замір іде в обидва тракти одночасно. Це і є основа фази 4:
+  // розбіжність між USB і хмарою має бути нульовою, бо джерело одне.
+  collectSample((millis() - runStartMs) / 1000.0, waterMl, pendingEvent);
+#endif
+
   pendingEvent = "";
 }
 
@@ -381,6 +673,14 @@ void handleCommand(const String &raw) {
       initDisplay();
       Serial.println("# Ve ON");
       break;
+#ifdef AGRO_WIFI
+    case 'f':
+      // Віддати недобрану пачку негайно. Потрібно наприкінці прогону: інакше
+      // останні заміри висять у RAM і зникають разом із живленням.
+      Serial.println("# примусова відправка");
+      flushBatch();
+      break;
+#endif
     case 'h':
       // Скрипт, який під'єднався до вже запущеної плати, заголовка не бачив —
       // а без нього не знає, який стовпець це який сенсор. `r` для цього не
@@ -461,6 +761,10 @@ void setup() {
   }
 
   delay(SOIL_WARMUP_MS);
+
+#ifdef AGRO_WIFI
+  wifiSetup();
+#endif
 
   printHelp();
   resetRun();
