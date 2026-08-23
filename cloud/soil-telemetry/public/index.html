@@ -76,6 +76,8 @@
   .tiles { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:6px; }
   @media (min-width: 640px) { .tiles { grid-template-columns: repeat(4, minmax(0,1fr)); } }
   .tile { padding:8px 11px 10px; min-width:0; }
+  .tile { cursor:pointer; }
+  .tile.off { opacity:.45; }
   .tile .lbl { display:flex; align-items:center; gap:6px; color:var(--mut); font-size:13px; font-weight:600; letter-spacing:.2px; }
   .tile .lbl i { width:9px; height:9px; border-radius:3px; flex:none; display:inline-block; }
   .tile .val { font-size:34px; font-weight:600; line-height:1.15; letter-spacing:-1px; margin-top:1px; }
@@ -262,12 +264,22 @@ function renderTiles(d) {
   d.labels.forEach((lbl, i) => {
     const s = d.sigma_mv[i];
     const note = s > SIGMA_BAD ? ' · мертвий?' : s > SIGMA_WARN ? ' · шум' : '';
+    const off = hiddenChannels().has(lbl);
     tiles.insertAdjacentHTML('beforeend', `
-      <div class="card tile"><div class="lbl"><i style="background:${COLORS[i % COLORS.length]}"></i>${lbl}</div>
+      <div class="card tile${off ? ' off' : ''}" data-label="${lbl}" role="button" title="сховати/показати на графіку">
+        <div class="lbl"><i style="background:${COLORS[i % COLORS.length]}"></i>${lbl}${off ? ' <small>· схов.</small>' : ''}</div>
         <div class="val num">${last ? last.mv[i] : '—'}<small> мВ</small></div>
         <div class="raw num">raw ${last ? last.raw[i] : '—'}</div>
         <div class="sig ${sigClass(s)} num">σ/хв ${s == null ? '—' : s.toFixed(2)}${note}</div>
       </div>`);
+  });
+  // Тап по плитці ховає канал на графіку (і виводить зі шкали). Потрібно, коли
+  // один канал висить у повітрі або мертвий і розтягує вісь на всю шкалу.
+  tiles.querySelectorAll('.tile').forEach(el => el.onclick = () => {
+    const set = hiddenChannels(); const l = el.dataset.label;
+    set.has(l) ? set.delete(l) : set.add(l);
+    try { localStorage.setItem('soil_hide', JSON.stringify([...set])); } catch {}
+    if (lastData) { renderTiles(lastData); renderChart(lastData); }
   });
   const air = last && last.air_t != null ? `<b>${last.air_t.toFixed(1)} °C</b> · <b>${last.air_h.toFixed(0)} %</b>` : 'SHT31 нема';
   $('env').innerHTML = last
@@ -279,19 +291,63 @@ function renderTiles(d) {
 // Вісь X — реальний час, відновлений з received_at пачки: пачка надсилається
 // одразу після свого останнього заміру, тож x = received_at − (t_max_у_пачці − t).
 // Сам `t` для осі не годиться: він скидається командою `r` і не знає доби.
+// Прив'язка — до ОСТАННЬОЇ пачки безперервного відрізка t, а не до кожної
+// окремо: після обриву черга віддає кілька пачок за секунду з однаковим
+// received_at, і попачкова прив'язка наклала б їх одна на одну. Відрізок
+// рветься там, де t пішов назад (команда `r`, перезавантаження плати).
 function toSeries(d) {
-  const bySeq = {};
-  for (const s of d.samples) bySeq[s.seq] = Math.max(bySeq[s.seq] ?? -1, s.t);
-  const xs = d.samples.map(s => (new Date(s.received_at).getTime() / 1000) - (bySeq[s.seq] - s.t));
+  const n = d.samples.length;
+  const xs = new Array(n);
+  let end = n - 1;
+  for (let i = n - 1; i >= 0; i--) {
+    if (i === 0 || d.samples[i - 1].t > d.samples[i].t) {
+      const anchor = new Date(d.samples[end].received_at).getTime() / 1000, tEnd = d.samples[end].t;
+      for (let k = i; k <= end; k++) xs[k] = anchor - (tEnd - d.samples[k].t);
+      end = i - 1;
+    }
+  }
   const ys = d.labels.map((_, i) => d.samples.map(s => s.mv[i]));
+  const temp = d.samples.map(s => s.air_t == null ? null : s.air_t);
   const events = d.samples.map((s, k) => s.event ? { x: xs[k], text: s.event, t: s.t } : null).filter(Boolean);
-  return { xs, ys, events };
+  return { xs, ys, temp, events };
+}
+
+function hiddenChannels() {
+  try { return new Set(JSON.parse(localStorage.getItem('soil_hide') || '[]')); } catch { return new Set(); }
+}
+
+// Канал «живий», якщо його σ за хвилину в нормі і він не схований руками.
+// Мертвий або висячий канал (σ > SIGMA_BAD, десятки мВ шуму) малюється
+// пунктиром, але НЕ бере участі в масштабі осі мВ: інакше два порожні входи
+// по 30 мВ розтягують шкалу на 0–900, і зміни живих сенсорів на одиниці мВ
+// перетворюються на дві прямі лінії.
+function aliveMask(d) {
+  const hide = hiddenChannels();
+  return d.labels.map((l, i) => !hide.has(l) && d.sigma_mv[i] != null && d.sigma_mv[i] <= SIGMA_BAD);
+}
+
+// Межі осі мВ по живих каналах, з полем 10 % і мінімальним розмахом 10 мВ —
+// щоб дрібний шум не розтягувався на весь графік як буря.
+function mvRange(ys, alive) {
+  let lo = Infinity, hi = -Infinity;
+  ys.forEach((col, i) => { if (!alive[i]) return; for (const v of col) { if (v == null) continue; if (v < lo) lo = v; if (v > hi) hi = v; } });
+  if (!isFinite(lo)) { // жодного живого — показуємо все, як є
+    ys.forEach(col => { for (const v of col) { if (v == null) continue; if (v < lo) lo = v; if (v > hi) hi = v; } });
+  }
+  if (!isFinite(lo)) return [0, 1];
+  const span = Math.max(hi - lo, 10), pad = span * 0.1;
+  return [lo - pad, hi + pad];
 }
 
 function chartHeight() { return window.innerWidth < 640 ? 210 : 280; }
 
 function renderChart(d) {
-  const { xs, ys, events } = toSeries(d);
+  const { xs, ys, temp, events } = toSeries(d);
+  const alive = aliveMask(d);
+  const hide = hiddenChannels();
+  // Кількість каналів може змінитись (перепрошивка, інша плата) — тоді графік
+  // перебудовується з нуля, а не намагається натягнути нові дані на старі серії.
+  if (plot && plot._labels !== d.labels.join(',')) { plot.destroy(); plot = null; }
   if (!plot) {
     // Кольори осей беремо з теми, щоб графік читався і в темному режимі.
     const axis = { stroke: cssVar('--mut'), grid: { stroke: cssVar('--line') }, ticks: { stroke: cssVar('--line') }, font: '12px "IBM Plex Sans", system-ui' };
@@ -299,10 +355,20 @@ function renderChart(d) {
       width: $('chart').clientWidth, height: chartHeight(),
       legend: { show: false }, // кольори каналів показані на плитках
       cursor: { drag: { x: false, y: false } },
-      scales: { x: { time: true } },
+      scales: {
+        x: { time: true },
+        y: { range: (u) => u._yRange || [0, 1] },
+        c: { range: (u, min, max) => (min == null || max == null) ? [0, 1] : [min - 0.5, max + 0.5] },
+      },
       axes: [{ ...axis, values: (u, vals) => vals.map(v => new Date(v * 1000).toLocaleTimeString('uk', { hour: '2-digit', minute: '2-digit' })) },
-             { ...axis, label: 'мВ', labelFont: '600 12px "IBM Plex Sans", system-ui', size: 52 }],
-      series: [{ label: 'час' }, ...d.labels.map((l, i) => ({ label: l, stroke: COLORS[i % COLORS.length], width: 1.5, points: { show: false } }))],
+             { ...axis, label: 'мВ', labelFont: '600 12px "IBM Plex Sans", system-ui', size: 52 },
+             // Температура другою віссю праворуч: на довгій дистанції саме вона
+             // пояснює повільний дрейф мВ, без неї крива висихання не читається.
+             { ...axis, scale: 'c', side: 1, label: '°C', labelFont: '600 12px "IBM Plex Sans", system-ui', size: 44, grid: { show: false },
+               values: (u, vals) => vals.map(v => v.toFixed(1)) }],
+      series: [{ label: 'час' },
+               ...d.labels.map((l, i) => ({ label: l, stroke: COLORS[i % COLORS.length], width: 1.5, points: { show: false } })),
+               { label: '°C', scale: 'c', stroke: cssVar('--warn'), width: 1.25, dash: [3, 4], points: { show: false } }],
       hooks: { draw: [u => {
         const ctx = u.ctx; ctx.save(); ctx.strokeStyle = cssVar('--acc'); ctx.setLineDash([4, 4]); ctx.lineWidth = 1.5;
         for (const e of (u._events || [])) {
@@ -312,10 +378,18 @@ function renderChart(d) {
         ctx.restore();
       }] },
     };
-    plot = new uPlot(opts, [xs, ...ys], $('chart'));
-  } else {
-    plot.setData([xs, ...ys]);
+    plot = new uPlot(opts, [xs, ...ys, temp], $('chart'));
+    plot._labels = d.labels.join(',');
   }
+  plot._yRange = mvRange(ys, alive);
+  // Мертві/сховані — пунктиром і тонко (сховані зовсім не малюємо).
+  d.labels.forEach((l, i) => {
+    const sr = plot.series[i + 1];
+    const dead = !alive[i];
+    sr.dash = dead ? [2, 4] : null; sr.width = dead ? 1 : 1.5;
+    plot.setSeries(i + 1, { show: !hide.has(l) }, false);
+  });
+  plot.setData([xs, ...ys, temp]);
   plot._events = events;
   $('eventsTitle').textContent = `події · доливи (${events.length})`;
   $('events').innerHTML = events.slice(-10).reverse().map(e =>
