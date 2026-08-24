@@ -132,6 +132,29 @@ const int SOIL_PINS[3] = {SOIL_1, SOIL_2, SOIL_3};
 // ~1,5 мс на старт; беремо з запасом, бо ціна помилки — цикл без повітря.
 #define SENSOR_SETTLE_MS 20
 
+// Вікно семплювання: скільки мілісекунд після пробудження вузол ПРОДОВЖУЄ
+// міряти й слати, замість одного пакета на цикл.
+//
+// 0 — класична поведінка: один замір, одна передача, спати. Мінімум енергії,
+// але й мінімум довіри до числа: один відлік нема з чим порівняти, і викид
+// від наводки не відрізнити від справжньої зміни.
+//
+// >0 — кілька відліків за цикл, з яких потім рахується середнє. Дорожче: і
+// радіо в ефірі частіше, і плата не спить довше. Свідомий обмін енергії на
+// якість даних, тому число задається збіркою, а не зашите.
+//
+// Навмисно НЕ прив'язане до AGRO_SCREEN_TRACE: спершу воно жило разом з
+// екраном, і це означало б, що в полі (де екрана нема) потік мовчки зникає.
+#ifndef SAMPLE_WINDOW_MS
+#define SAMPLE_WINDOW_MS 0
+#endif
+
+// Як часто повторювати замір у межах вікна. 2 с — темп опорного вузла, тож
+// обидва вузли лягають на графік однаково густо.
+#ifndef SAMPLE_EVERY_MS
+#define SAMPLE_EVERY_MS 2000
+#endif
+
 #define SHT_RETRIES 3
 #define SHT_RETRY_DELAY_MS 150
 
@@ -465,6 +488,13 @@ int soilRawToPercent(int humSoil) {
 // зайвого читання поверх штатного.
 int lastSoilRaw = 0;
 
+// Скільки мілісекунд від подачі Vext минуло до заміру ґрунту. Їде в пакеті
+// навмисно: прогрів більше не ховається за мовчазною паузою, тож замість
+// довіряти константі ми БАЧИМО, у який момент циклу знято число. Якщо перші
+// заміри виявляться кривими, це буде видно на парі (soil_at_ms, soil_raw) на
+// живих даних, а не на стенді.
+unsigned long lastSoilAtMs = 0;
+
 // Сирий медіанний замір, окремо від перетворення у відсотки — щоб A/B-режим
 // міг зняти його двічі за цикл на різних відмітках прогріву.
 int readSoilRawMedian() {
@@ -485,9 +515,10 @@ int readSoilRawMedian() {
   LOG("soil raw: %d %d %d\n", v[0], v[1], v[2]);
   lastSoilRaw = medianOf3(v[0], v[1], v[2]);
 #else
-  LOG("soil raw: %d\n", v[0]);
+  LOG("soil raw: %d (at %lu ms)\n", v[0], millis() - vextOnAtMs);
   lastSoilRaw = v[0];
 #endif
+  lastSoilAtMs = millis() - vextOnAtMs;
   return lastSoilRaw;
 }
 
@@ -586,6 +617,7 @@ String buildTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
   // Сире значення — щоб шкалу можна було переглянути заднім числом; див.
   // коментар до soilRawToPercent().
   json += ",\"soil_raw\":" + String(lastSoilRaw);
+  json += ",\"soil_at_ms\":" + String(lastSoilAtMs);
   // Немає поля = не знаємо, рівно як з повітрям вище. Приймальний бік
   // відрізнить це від нуля, а nullable-колонка в базі це вже вміє.
   if (!isnan(vbat)) {
@@ -645,12 +677,19 @@ void screenStage(const String &line1, const String &line2) {
 #define SCREEN_STAGE(a, b) ((void)0)
 #endif
 
-void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
-                   float vbat, bool txOk) {
+// Малює кадр і повертається одразу. Пауза й гасіння екрана — на тому, хто
+// викликає: стендовий режим оновлює цей самий кадр у циклі, і власна пауза
+// всередині зробила б це неможливим.
+void drawTelemetryFrame(int soilPercent, bool airOk, float airTemp, float airHum,
+                        float vbat, bool txOk) {
+#ifdef AGRO_SCREEN_TRACE
+  screenBegin();
+#else
   resetDisplay();
   display.init();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
+#endif
 
   display.clear();
   display.drawString(0, 0, "AIR TEMP: " + (airOk ? String(airTemp, 1) + "C" : "--"));
@@ -671,10 +710,65 @@ void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
                                   String(SLEEP_MINUTES) + "min");
   }
   display.display();
+}
 
+void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
+                   float vbat, bool txOk) {
+  drawTelemetryFrame(soilPercent, airOk, airTemp, airHum, vbat, txOk);
   delay(OLED_ON_MS);
   display.displayOff();
 }
+
+#if defined(AGRO_SCREEN_TRACE) || SAMPLE_WINDOW_MS > 0
+// Вікно неспання: поки воно триває, вузол ПРОДОВЖУЄ міряти й слати,
+// а не показує знімок.
+//
+// Бойова логіка — один пакет на цикл, і в цьому весь сенс сну. Але на столі
+// вона робить перевірку неможливою: занурив щуп у воду — і бачиш те саме
+// число, бо замір уже зроблено, а наступний буде аж наступного циклу. Тут
+// цикл вимірювання й передачі крутиться далі, тож реакція сенсора видно
+// одразу і на екрані, і в базі.
+//
+// Ціна — кілька пакетів замість одного й повне вікно радіо в ефірі. Для
+// батареї це неприйнятно, тому в lowpower_5min/15min цього блоку нема.
+void runAwakeWindow(int soilPercent, bool airOk, float airTemp, float airHum,
+                    float vbat, bool txOk) {
+  // Вікно тримається доти, доки потрібне ХОЧ ОДНОМУ зі споживачів: даним або
+  // очам. Інакше при OLED_ON_MS > SAMPLE_WINDOW_MS екран гаснув би раніше,
+  // ніж людина встигає прочитати, а при зворотному співвідношенні обірвався б
+  // збір даних.
+  unsigned long windowMs = SAMPLE_WINDOW_MS;
+#ifdef AGRO_SCREEN_TRACE
+  if (OLED_ON_MS > windowMs) windowMs = OLED_ON_MS;
+#endif
+  const unsigned long until = millis() + windowMs;
+
+  while (true) {
+#ifdef AGRO_SCREEN_TRACE
+    drawTelemetryFrame(soilPercent, airOk, airTemp, airHum, vbat, txOk);
+#endif
+    if ((long)(millis() - until) >= 0) break;
+
+    delay(SAMPLE_EVERY_MS);
+
+    soilPercent = readSoilPercent();
+    airOk = readAir(airTemp, airHum);
+    vbat = readBatteryVolts();
+
+    String msg = buildTelemetry(soilPercent, airOk, airTemp, airHum, vbat);
+    txOk = (radio.transmit(msg) == RADIOLIB_ERR_NONE);
+    if (txOk) {
+      LOG_LN("Sent! " + msg);
+    } else {
+      LOG_LN("Send failed");
+    }
+  }
+
+#ifdef AGRO_SCREEN_TRACE
+  display.displayOff();
+#endif
+}
+#endif
 
 void enterDeepSleep() {
   // Порядок важливий: спершу приспати радіо, потім зняти Vext. SX1262 у
@@ -809,9 +903,8 @@ void setup() {
   }
 
   const bool txOk = (txState == RADIOLIB_ERR_NONE);
-#ifdef AGRO_SCREEN_TRACE
-  // На стенді — щоразу: сенс режиму саме в тому, щоб цикл було видно.
-  showTelemetry(soilPercent, airOk, airTemp, airHum, vbat, txOk);
+#if defined(AGRO_SCREEN_TRACE) || SAMPLE_WINDOW_MS > 0
+  runAwakeWindow(soilPercent, airOk, airTemp, airHum, vbat, txOk);
 #else
   if (!wokeFromTimer()) {
     showTelemetry(soilPercent, airOk, airTemp, airHum, vbat, txOk);
