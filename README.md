@@ -80,8 +80,6 @@ The bars are the same fact per equal 25 mL portion: linear gives the first
 portion **38 points** and the last **0.3** — a 128× difference for the same
 amount of water. Logarithmic gives every portion the same weight.
 
-![Scale steepness](./firmware/soil-calibration/data/scale_curve.png)
-
 A linear `map()` spreads percentage evenly across *voltage*, not across *water*,
 so it eats the whole wet half of the range — exactly where a greenhouse lives.
 Its midpoint reads 89% where the soil is only halfway.
