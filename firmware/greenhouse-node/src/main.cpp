@@ -193,21 +193,63 @@ int medianOf3(int a, int b, int c) {
 }
 
 
+// Межі й форма — ЗАМІРЯНІ (docs/калібрування-ґрунту.md):
+//
+//   2874 raw — повітряно-сухий тепличний ґрунт, стіл 2026-08-22
+//   1050 raw — грядка після звичайного поливу, теплиця 2026-08-23
+//   ~1020 raw — асимптота: показник, у який упирається насичення
+//
+// ЧОМУ НЕ map(). Відгук сенсора експоненційний: у сухому ґрунті 1 мл води
+// зсуває показник на 12 мВ, у мокрому — на 0,05 мВ. Тобто лінійна шкала по
+// напрузі НЕ лінійна по воді: вона з'їдає всю мокру половину діапазону.
+// Заміряно: від 1200 до 1050 raw у лінійній шкалі лише 8 відсотків, хоча це
+// більша частина води.
+//
+// Логарифм повертає шкалі зміст: рівні кроки відсотка = рівні порції води.
+// Практично це виглядає так, як і мало б: до мокрого відсоток біжить швидше,
+// до сухого — повільніше.
+//
+// Коефіцієнт k з моделі mV = C + A*exp(-V/k) тут СКОРОЧУЄТЬСЯ — потрібна лише
+// асимптота C. Це важливо, бо k залежить від об'єму ґрунту (заміряний на 1 кг
+// у відрі й на грядку не переноситься), а C — властивість сенсора й ґрунту.
+//
+// SOIL_ASYMPTOTE трохи нижча за мокрий кінець навмисно: біля самої асимптоти
+// логарифм росте необмежено, і шум почав би давати відсотки на рівному місці.
+#define SOIL_DRY_RAW    2874
+#define SOIL_WET_RAW    1050
+#define SOIL_ASYMPTOTE  1020
+
 int soilRawToPercent(int humSoil) {
-  // Грубе перетворення сирого ADC у % — без реального калібрування (буде пізніше).
-  // Підбери fromLow/fromHigh під свої реальні сирі значення сухо/мокро.
-  int soilPercent = map(humSoil, 3000, 1200, 0, 100);
+  // Нижче асимптоти логарифм не визначений — це вже поза шкалою.
+  if (humSoil <= SOIL_ASYMPTOTE + 1) {
+    return 100;
+  }
+  if (humSoil >= SOIL_DRY_RAW) {
+    return 0;
+  }
+
+  const float span = (float)(SOIL_DRY_RAW - SOIL_ASYMPTOTE);
+  const float full = logf((float)(SOIL_WET_RAW - SOIL_ASYMPTOTE) / span);
+  const float here = logf((float)(humSoil - SOIL_ASYMPTOTE) / span);
+
+  int soilPercent = (int)(100.0f * here / full);
   return constrain(soilPercent, 0, 100);
 }
 
 // uptime тут не прикраса: опорний вузол має працювати безперервно, і саме
 // його неперервність робить його опорним. Якщо він мовчки перезавантажиться,
 // лічильник впаде до нуля — і це буде видно в даних, а не здогадкою.
-String buildTelemetry(int soilPercent, float airTemp, float airHum, float vbat) {
+// soil_raw їде поруч із відсотком навмисно. Відсоток — ПОХІДНА, і його шкала
+// ще не остаточна: робочий діапазон грядки невідомий, поки не побачимо цикл
+// висихання. Сире значення від шкали не залежить, тож коли межі уточняться,
+// історію можна перерахувати без перепрошивки вузлів у полі.
+String buildTelemetry(int soilRaw, int soilPercent, float airTemp, float airHum,
+                      float vbat) {
   return "{\"type\":\"measurement\",\"node_id\":" + String(NODE_ID) + ","
            "\"air_temperature\":" + String(airTemp, 1) + ","
            "\"air_humidity\":" + String(airHum, 1) + ","
            "\"soil_moisture\":" + String(soilPercent) + ","
+           "\"soil_raw\":" + String(soilRaw) + ","
            "\"vbat\":" + String(vbat, 2) + ","
            "\"uptime\":" + String(millis() / 1000) + "}";
 }
@@ -239,7 +281,7 @@ void loop() {
   float vbat = readBatteryVolts();
   lastVbat = vbat;
 
-  String msg = buildTelemetry(soilPercent, airTemp, airHum, vbat);
+  String msg = buildTelemetry(humSoil, soilPercent, airTemp, airHum, vbat);
   int state = radio.transmit(msg);
 
   if (state == RADIOLIB_ERR_NONE) {
