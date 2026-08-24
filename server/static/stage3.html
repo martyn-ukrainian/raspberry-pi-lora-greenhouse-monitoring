@@ -276,6 +276,20 @@ function points(buckets){
 }
 function winLabel(){ return WIN>=60 ? (WIN/60)+" год" : WIN+" хв"; }
 
+// Плавна крива через точки: Catmull-Rom, перетворений у кубічні Безьє.
+// tension 1/6 дає м'яку лінію, що проходить рівно через кожен замір.
+function smoothPath(pts, X, Y){
+  if(pts.length<2) return '';
+  const P=pts.map(p=>[X(p.t), Y(p.avg)]);
+  let d=`M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+  for(let i=0;i<P.length-1;i++){
+    const p0=P[i-1]||P[i], p1=P[i], p2=P[i+1], p3=P[i+2]||P[i+1];
+    const c1x=p1[0]+(p2[0]-p0[0])/6, c1y=p1[1]+(p2[1]-p0[1])/6;
+    const c2x=p2[0]-(p3[0]-p1[0])/6, c2y=p2[1]-(p3[1]-p1[1])/6;
+    d+=`C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
 // Один малювальник для обох виглядів. list — масив серій {pts,color,dash}.
 // Суцільна серія: лінія + точки + риски розкиду; dash — бліда пунктирна (примара).
 function seriesSvg(list, xMin,xMax,yMin,yMax,H,gridPx,lineColor){
@@ -287,7 +301,7 @@ function seriesSvg(list, xMin,xMax,yMin,yMax,H,gridPx,lineColor){
   for(const s of list){
     const pts=s.pts; if(!pts.length) continue;
     if(s.dash){
-      if(pts.length>=2) body+=`<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${s.color}" stroke-width="1.3" stroke-dasharray="3 4" stroke-opacity=".5"/>`;
+      if(pts.length>=2) body+=`<path d="${smoothPath(pts,X,Y)}" fill="none" stroke="${s.color}" stroke-width="1.3" stroke-dasharray="3 4" stroke-opacity=".5"/>`;
       continue;
     }
     let wh='',dots='';
@@ -295,7 +309,7 @@ function seriesSvg(list, xMin,xMax,yMin,yMax,H,gridPx,lineColor){
       wh+=`<line x1="${x}" y1="${Y(p.min).toFixed(1)}" x2="${x}" y2="${Y(p.max).toFixed(1)}" stroke="${s.color}" stroke-opacity=".35" stroke-width="2"/>`;
       dots+=`<circle cx="${x}" cy="${Y(p.avg).toFixed(1)}" r="2.6" fill="${s.color}"/>`;
     }
-    const line = pts.length>=2 ? `<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round"/>` : '';
+    const line = pts.length>=2 ? `<path d="${smoothPath(pts,X,Y)}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>` : '';
     body+=wh+line+dots;
   }
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${body}</svg>`;
