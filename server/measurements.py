@@ -18,8 +18,12 @@ logger = get_logger(__name__)
 class Measurement(SQLModel, table=True):  # type: ignore[call-arg]
     id: int | None = Field(default=None, primary_key=True)
     node_id: str
-    air_temperature: float
-    air_humidity: float
+    # Nullable, бо "сенсор не відповів" — це не нуль. Вузол у такому разі не
+    # шле полів зовсім, і доти ці колонки були NOT NULL, через що adapter
+    # відкидав пакет ЦІЛКОМ: поломка датчика повітря знищувала й вимір ґрунту,
+    # який був справним. Див. міграцію c4f1a8e37b02.
+    air_temperature: float | None = Field(default=None)
+    air_humidity: float | None = Field(default=None)
     soil_moisture: float
     # Сире ADC ґрунтового сенсора, 0..4095.
     #

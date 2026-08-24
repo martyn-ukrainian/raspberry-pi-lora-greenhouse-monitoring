@@ -32,8 +32,8 @@ class SensorReading(Protocol):
     """
 
     node_id: str
-    air_temperature: float
-    air_humidity: float
+    air_temperature: float | None
+    air_humidity: float | None
     soil_moisture: float
     timestamp: datetime
 
@@ -90,10 +90,17 @@ def _check_sensor(
     node_id: str,
     label: str,
     sensor_name: str,
-    value: float,
+    value: float | None,
     sensor_config: SensorThresholds,
     timestamp: datetime,
 ) -> Alert | None:
+    # Немає значення — немає підстав ні для алерта, ні для його зняття.
+    # Мовчазний сенсор не означає "в нормі", тому out_since свідомо НЕ
+    # скидається: якщо аномалія почалась до того, як він замовк, витримка має
+    # продовжити відлік, а не початись наново.
+    if value is None:
+        return None
+
     kind, boundary = _classify(value, sensor_config)
     state = _get_state(node_id, sensor_name)
 

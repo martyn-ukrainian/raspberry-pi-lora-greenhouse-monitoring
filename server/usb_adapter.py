@@ -119,10 +119,11 @@ def handle_measurement(client: httpx.Client, packet: GatewayPacket, label: str) 
         post_event(client, label, SOURCE_NODE, code, packet.boot)
 
     if packet.air_temperature is None or packet.air_humidity is None:
-        # Ґрунт у пакеті є, але схема Measurement вимагає повітря non-null,
-        # тож цей цикл втрачаємо цілком. Подія вище вже пояснює чому.
-        logger.warning("Dropping measurement from %s: air sensor gave no data", label)
-        return
+        # Раніше тут стояв return: схема вимагала повітря non-null, і цикл
+        # втрачався цілком. Тепер колонки nullable, тож ґрунт доїжджає, а
+        # відсутнє повітря лишається відсутнім — не нулем. Подія вище вже
+        # сказала, чому саме сенсор мовчить.
+        logger.warning("No air data from %s, forwarding soil only", label)
 
     body = {
         "node_id": label,
