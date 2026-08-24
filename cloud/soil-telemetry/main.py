@@ -150,18 +150,22 @@ def nodes_ingest(batch: NodeBatch) -> dict:
         return {"ok": True, "written": 0}
     with db() as conn, conn.cursor() as cur:
         written = 0
-        for r in batch.rows:
+        if batch.rows:
+            # Один запит на всю пачку: по рядку окремо — це 500 round-trip до
+            # Neon, що не вкладається в ліміт функції (504). Тут одна вставка.
+            tmpl = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            values = ",".join([tmpl] * len(batch.rows))
+            params: list = []
+            for r in batch.rows:
+                params += [r.source_id, r.node_id, r.air_t, r.air_h, r.soil,
+                           r.soil_raw, r.rssi, r.snr, r.vbat, r.uptime, r.ts]
             cur.execute(
-                """
-                INSERT INTO node_measurements
-                    (source_id, node_id, air_t, air_h, soil, soil_raw, rssi, snr, vbat, uptime, ts)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (source_id) DO NOTHING
-                """,
-                (r.source_id, r.node_id, r.air_t, r.air_h, r.soil, r.soil_raw,
-                 r.rssi, r.snr, r.vbat, r.uptime, r.ts),
+                "INSERT INTO node_measurements "
+                "(source_id, node_id, air_t, air_h, soil, soil_raw, rssi, snr, vbat, uptime, ts) "
+                f"VALUES {values} ON CONFLICT (source_id) DO NOTHING",
+                params,
             )
-            written += cur.rowcount
+            written = cur.rowcount
         if batch.labels:
             for node_id, meta in batch.labels.items():
                 cur.execute(
