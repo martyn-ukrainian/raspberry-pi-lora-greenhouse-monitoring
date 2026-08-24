@@ -63,8 +63,11 @@
   .panel .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:2px}
   .panel .lab b{font-weight:600}
   .panel .plot{position:relative;padding-left:48px}
-  .panel svg{width:100%;height:168px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
-  .panel .yaxis{position:absolute;left:0;top:0;width:44px;height:168px;pointer-events:none}
+  .panel svg{width:100%;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+  .panel.stk svg{height:200px} .panel.one svg{height:320px}
+  .panel .yaxis{position:absolute;left:0;top:0;width:44px;pointer-events:none}
+  .panel.stk .yaxis{height:200px} .panel.one .yaxis{height:320px}
+  .key{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:3px}
   .panel .yaxis span{position:absolute;right:5px;transform:translateY(-50%);font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
   .axis{color:var(--mut);font-size:11px;display:flex;justify-content:space-between;margin-top:4px}
 </style>
@@ -94,6 +97,11 @@
       <button data-m="raw" class="on">сире ADC</button>
       <button data-m="pct">відсоток</button>
     </span>
+    <span style="margin-left:6px">Вигляд:</span>
+    <span class="metric-toggle" id="view">
+      <button data-v="overlay" class="on">разом</button>
+      <button data-v="stacked">окремо</button>
+    </span>
     <span id="metricNote" style="color:var(--mut)"></span>
   </div>
 
@@ -109,15 +117,24 @@
 
   <div class="charts">
     <h3>Динаміка <span id="chartMetric" class="num" style="color:var(--mut);font-weight:400;font-size:13px"></span></h3>
-    <div class="cap">Спільна вісь часу й спільний масштаб — вертикальний зсув між панелями і є різницею.
-      Точка на хвилину (середнє), тонка риска — розкид усередині хвилини.</div>
-    <div class="panel">
-      <div class="lab"><span style="color:var(--ref)"><b>безперервний</b> · stage3-reference</span><span id="rY" class="num"></span></div>
-      <div class="plot"><div class="yaxis" id="yRef"></div><div id="chRef"></div></div>
+    <div class="cap">Спільна вісь часу й спільний масштаб. «Разом» — обидва на одному полі, різниця видно як
+      відстань між лініями; «окремо» — стеком, з блідим пунктиром іншого вузла. Точка (середнє), тонка риска — розкид у бакеті.</div>
+
+    <div id="viewOne" class="panel one">
+      <div class="lab"><span><span class="key" style="background:var(--ref)"></span><b style="color:var(--ref)">безперервний</b>
+        <span class="key" style="background:var(--low);margin-left:12px"></span><b style="color:var(--low)">зі сном</b></span><span id="oneU" class="num"></span></div>
+      <div class="plot"><div class="yaxis" id="yOne"></div><div id="chOne"></div></div>
     </div>
-    <div class="panel">
-      <div class="lab"><span style="color:var(--low)"><b>зі сном</b> · stage3-lowpower</span><span id="lY" class="num"></span></div>
-      <div class="plot"><div class="yaxis" id="yLow"></div><div id="chLow"></div></div>
+
+    <div id="viewStack" style="display:none">
+      <div class="panel stk">
+        <div class="lab"><span style="color:var(--ref)"><b>безперервний</b> · stage3-reference</span><span id="rY" class="num"></span></div>
+        <div class="plot"><div class="yaxis" id="yRef"></div><div id="chRef"></div></div>
+      </div>
+      <div class="panel stk">
+        <div class="lab"><span style="color:var(--low)"><b>зі сном</b> · stage3-lowpower</span><span id="lY" class="num"></span></div>
+        <div class="plot"><div class="yaxis" id="yLow"></div><div id="chLow"></div></div>
+      </div>
     </div>
     <div id="chAxis" class="axis"></div>
   </div>
@@ -134,10 +151,12 @@ function nid(key, def){ try { return localStorage.getItem(key) || def; } catch {
 let REF = nid("stage3_ref", "stage3-reference");
 let LOW = nid("stage3_low", "stage3-lowpower");
 let METRIC = nid("stage3_metric", "raw");        // raw | pct
+let VIEW = nid("stage3_view", "overlay");        // overlay | stacked
 const WIN_OPTS = [60, 240, 720];
 let WIN = parseInt(nid("stage3_win", "60"), 10);
 if(!WIN_OPTS.includes(WIN)){ WIN = 60; try{localStorage.setItem("stage3_win","60")}catch{} }
 
+let lastData=null;
 const BASE = location.protocol.startsWith("http") ? location.origin
   : (nid("agro_base", "http://agro-pi.local:8008"));
 
@@ -242,59 +261,73 @@ function renderDiff(a, b){
 function points(buckets){
   const out=[];
   for(const b of buckets||[]){
-    const s=b[field()];
-    if(!b.count||!s||s.avg==null) continue;
-    out.push({t:Date.parse(b.bucket), avg:s.avg, min:s.min, max:s.max});
+    const st=b[field()];
+    if(!b.count||!st||st.avg==null) continue;
+    out.push({t:Date.parse(b.bucket), avg:st.avg, min:st.min, max:st.max});
   }
   return out.sort((a,b)=>a.t-b.t);
 }
-function ghostLine(pts, X, Y, color){
-  if(pts.length<2) return '';
-  return `<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${color}" stroke-width="1.2" stroke-dasharray="3 4" stroke-opacity=".45"/>`;
-}
-function svgPanel(pts, ghost, xMin, xMax, yMin, yMax, color, ghostColor, gridPx, lineColor){
-  const W=1000,H=168,pad=14;
+function winLabel(){ return WIN>=60 ? (WIN/60)+" год" : WIN+" хв"; }
+
+// Один малювальник для обох виглядів. list — масив серій {pts,color,dash}.
+// Суцільна серія: лінія + точки + риски розкиду; dash — бліда пунктирна (примара).
+function seriesSvg(list, xMin,xMax,yMin,yMax,H,gridPx,lineColor){
+  const W=1000, pad=16;
   const X=(t)=>((t-xMin)/(xMax-xMin||1))*W;
   const Y=(v)=>H-pad-((v-yMin)/(yMax-yMin||1))*(H-2*pad);
-  const grid=(gridPx||[]).map(py=>`<line x1="0" y1="${py.toFixed(1)}" x2="${W}" y2="${py.toFixed(1)}" stroke="${lineColor}" stroke-width="1" stroke-opacity=".6"/>`).join('');
-  if(!pts.length) return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${ghostLine(ghost,X,Y,ghostColor)}</svg>`;
-  let spread='', line='', dots='';
-  for(const p of pts){
-    const x=X(p.t).toFixed(1);
-    spread+=`<line x1="${x}" y1="${Y(p.min).toFixed(1)}" x2="${x}" y2="${Y(p.max).toFixed(1)}" stroke="${color}" stroke-opacity=".35" stroke-width="2"/>`;
-    dots+=`<circle cx="${x}" cy="${Y(p.avg).toFixed(1)}" r="2.4" fill="${color}"/>`;
+  const grid=(gridPx||[]).map(py=>`<line x1="0" y1="${py.toFixed(1)}" x2="${W}" y2="${py.toFixed(1)}" stroke="${lineColor}" stroke-width="1" stroke-opacity=".55"/>`).join('');
+  let body='';
+  for(const s of list){
+    const pts=s.pts; if(!pts.length) continue;
+    if(s.dash){
+      if(pts.length>=2) body+=`<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${s.color}" stroke-width="1.3" stroke-dasharray="3 4" stroke-opacity=".5"/>`;
+      continue;
+    }
+    let wh='',dots='';
+    for(const p of pts){ const x=X(p.t).toFixed(1);
+      wh+=`<line x1="${x}" y1="${Y(p.min).toFixed(1)}" x2="${x}" y2="${Y(p.max).toFixed(1)}" stroke="${s.color}" stroke-opacity=".35" stroke-width="2"/>`;
+      dots+=`<circle cx="${x}" cy="${Y(p.avg).toFixed(1)}" r="2.6" fill="${s.color}"/>`;
+    }
+    const line = pts.length>=2 ? `<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round"/>` : '';
+    body+=wh+line+dots;
   }
-  line=`<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${ghostLine(ghost,X,Y,ghostColor)}${spread}${line}${dots}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${body}</svg>`;
 }
+
 function renderCharts(aB, bB){
-  const A=points(aB), B=points(bB);
-  const all=[...A,...B];
-  $("#chartMetric").textContent = "· "+(METRIC==="raw"?"сире ADC":"відсоток")+", вікно "+WIN+" хв";
-  if(!all.length){ $("#chRef").innerHTML=$("#chLow").innerHTML='<div class="empty" style="padding:40px 0;text-align:center">даних нема</div>'; $("#chAxis").innerHTML=''; $("#yRef").innerHTML=$("#yLow").innerHTML=''; $("#rY").textContent=$("#lY").textContent=''; return; }
+  const A=points(aB), B=points(bB), all=[...A,...B];
+  const stacked = VIEW==="stacked";
+  $("#chartMetric").textContent = "· "+(METRIC==="raw"?"сире ADC":"відсоток")+", вікно "+winLabel();
+  $("#viewOne").style.display   = stacked?"none":"";
+  $("#viewStack").style.display = stacked?"":"none";
+  if(!all.length){
+    $("#chOne").innerHTML=$("#chRef").innerHTML=$("#chLow").innerHTML='<div class="empty" style="padding:60px 0;text-align:center">даних нема</div>';
+    $("#chAxis").innerHTML=''; $("#yOne").innerHTML=$("#yRef").innerHTML=$("#yLow").innerHTML='';
+    $("#oneU").textContent=$("#rY").textContent=$("#lY").textContent=''; return;
+  }
   const xMin=Date.now()-WIN*60000, xMax=Date.now();
   let lo=Infinity,hi=-Infinity;
   for(const p of all){ lo=Math.min(lo,p.min); hi=Math.max(hi,p.max); }
-  const span=Math.max(hi-lo, METRIC==="raw"?10:1), pad=span*0.15;
-  const yMin=lo-pad, yMax=hi+pad;
+  const span=Math.max(hi-lo, METRIC==="raw"?10:1), pd=span*0.15;
+  const yMin=lo-pd, yMax=hi+pd;
   const cs=getComputedStyle(document.documentElement);
   const ref=cs.getPropertyValue('--ref').trim(), low=cs.getPropertyValue('--low').trim(), lineC=cs.getPropertyValue('--line').trim();
-  const d=dec(), H=168, padY=14;
-  const Ypx=(v)=>H-padY-((v-yMin)/(yMax-yMin||1))*(H-2*padY);
-  // 5 рівнів шкали, рівномірно від yMin до yMax
-  const ticks=[]; for(let i=0;i<5;i++){ const v=yMin+(yMax-yMin)*i/4; ticks.push({v, py:Ypx(v)}); }
-  const gridPx=ticks.map(t=>t.py);
-  $("#chRef").innerHTML=svgPanel(A,B,xMin,xMax,yMin,yMax,ref,low,gridPx,lineC);
-  $("#chLow").innerHTML=svgPanel(B,A,xMin,xMax,yMin,yMax,low,ref,gridPx,lineC);
-  const axisHTML=ticks.map(t=>`<span style="top:${t.py.toFixed(1)}px">${fmt(t.v,d)}</span>`).join('');
-  $("#yRef").innerHTML=axisHTML; $("#yLow").innerHTML=axisHTML;
-  const u=METRIC==="raw"?"ADC":"%";
-  $("#rY").textContent=u; $("#lY").textContent=u;
-  // мітки часу: початок вікна, середина, кінець
-  const t0=new Date(xMin).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
-  const tm=new Date((xMin+xMax)/2).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
-  const t1=new Date(xMax).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
-  $("#chAxis").innerHTML=`<span>${t0}</span><span>${tm}</span><span>${t1} (зараз)</span>`;
+  const d=dec(), u=METRIC==="raw"?"ADC":"%";
+  const mkTicks=(H)=>{ const pad=16, Ypx=(v)=>H-pad-((v-yMin)/(yMax-yMin||1))*(H-2*pad);
+    const t=[]; for(let i=0;i<5;i++){ const v=yMin+(yMax-yMin)*i/4; t.push({v,py:Ypx(v)}); } return t; };
+  const axis=(ticks)=>ticks.map(t=>`<span style="top:${t.py.toFixed(1)}px">${fmt(t.v,d)}</span>`).join('');
+  if(stacked){
+    const H=200, ticks=mkTicks(H), g=ticks.map(t=>t.py);
+    $("#chRef").innerHTML=seriesSvg([{pts:A,color:ref},{pts:B,color:low,dash:true}],xMin,xMax,yMin,yMax,H,g,lineC);
+    $("#chLow").innerHTML=seriesSvg([{pts:B,color:low},{pts:A,color:ref,dash:true}],xMin,xMax,yMin,yMax,H,g,lineC);
+    $("#yRef").innerHTML=$("#yLow").innerHTML=axis(ticks); $("#rY").textContent=$("#lY").textContent=u;
+  } else {
+    const H=320, ticks=mkTicks(H), g=ticks.map(t=>t.py);
+    $("#chOne").innerHTML=seriesSvg([{pts:A,color:ref},{pts:B,color:low}],xMin,xMax,yMin,yMax,H,g,lineC);
+    $("#yOne").innerHTML=axis(ticks); $("#oneU").textContent=u;
+  }
+  const tt=(ms)=>new Date(ms).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
+  $("#chAxis").innerHTML=`<span>${tt(xMin)}</span><span>${tt((xMin+xMax)/2)}</span><span>${tt(xMax)} (зараз)</span>`;
 }
 
 async function tick(){
@@ -302,6 +335,7 @@ async function tick(){
     const [a, b] = await Promise.all([nodeStats(REF), nodeStats(LOW)]);
     renderCard($("#cardRef"), "ref", REF, a);
     renderCard($("#cardLow"), "low", LOW, b);
+    lastData={a:a.buckets, b:b.buckets};
     renderDiff(a, b);
     renderCharts(a.buckets, b.buckets);
     setConn(true, `оновлено ${new Date().toLocaleTimeString("uk")}`);
@@ -319,6 +353,12 @@ for(const btn of $("#metric").querySelectorAll("button")){
   btn.classList.toggle("on", btn.dataset.m===METRIC);
   btn.onclick = ()=>{ METRIC=btn.dataset.m; try{localStorage.setItem("stage3_metric",METRIC)}catch{};
     for(const b of $("#metric").querySelectorAll("button")) b.classList.toggle("on", b.dataset.m===METRIC); tick(); };
+}
+for(const btn of $("#view").querySelectorAll("button")){
+  btn.classList.toggle("on", btn.dataset.v===VIEW);
+  btn.onclick = ()=>{ VIEW=btn.dataset.v; try{localStorage.setItem("stage3_view",VIEW)}catch{};
+    for(const b of $("#view").querySelectorAll("button")) b.classList.toggle("on", b.dataset.v===VIEW);
+    if(lastData) renderCharts(lastData.a, lastData.b); };
 }
 
 tick();
