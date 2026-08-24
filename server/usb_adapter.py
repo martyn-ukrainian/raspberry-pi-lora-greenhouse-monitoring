@@ -48,6 +48,8 @@ class GatewayPacket(BaseModel):
     air_temperature: float | None = None
     air_humidity: float | None = None
     soil_moisture: float
+    # Сире ADC. Шлють обидві бойові прошивки; None лише від старих збірок.
+    soil_raw: int | None = None
     rssi: int
     snr: float
     # vbat шлють обидві прошивки (у greenhouse-node доданий для етапу 3),
@@ -107,6 +109,7 @@ def handle_measurement(client: httpx.Client, packet: GatewayPacket, label: str) 
         "air_temperature": packet.air_temperature,
         "air_humidity": packet.air_humidity,
         "soil_moisture": packet.soil_moisture,
+        "soil_raw": packet.soil_raw,
         "rssi": packet.rssi,
         "snr": packet.snr,
         "vbat": packet.vbat,
