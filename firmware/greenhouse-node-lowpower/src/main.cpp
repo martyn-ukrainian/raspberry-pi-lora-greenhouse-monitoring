@@ -655,7 +655,9 @@ void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
   display.clear();
   display.drawString(0, 0, "AIR TEMP: " + (airOk ? String(airTemp, 1) + "C" : "--"));
   display.drawString(0, 12, "AIR HUM: " + (airOk ? String(airHum, 1) + "%" : "--"));
-  display.drawString(0, 24, "SOIL: " + String(soilPercent) + "%");
+  // Сире ADC замість відсотка: 0..4095, менше = вологіше. Відсоток залежить
+  // від калібрування, яке ще триває, і на екрані більше плутає, ніж пояснює.
+  display.drawString(0, 24, "SOIL: " + String(lastSoilRaw) + " adc");
   // NAN = живимось не від комірки. "USB" чесніше за "nan" і за вигадані вольти.
   display.drawString(0, 36, "BAT: " + (isnan(vbat) ? String("USB") : String(vbat, 2) + "V"));
 

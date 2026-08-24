@@ -37,6 +37,21 @@
 #define SOIL_2     3
 #define SOIL_3     4
 
+// Скільки ґрунтових щупів РЕАЛЬНО підключено. Не косметика: доти код брав
+// медіану всіх трьох входів беззастережно, а підключений у нас один.
+//
+// Медіана з трьох існує, щоб пережити один відпалий сенсор. Але коли двох
+// сенсорів нема зовсім, вона віддає шум із порожніх входів — і робить це
+// переконливо. Вузол 1 місяцями рапортував 14-15% вологості, тоді як його
+// щуп на s1 показував 3306, тобто сухо. Перевірено водою на вузлі 2: у воді
+// s1 падає 3230 -> 1002, а s2/s3 не ворушаться зовсім.
+//
+// Три щупи повернути можна прапорцем, не правкою коду:
+//   PLATFORMIO_BUILD_FLAGS=-DSOIL_SENSOR_COUNT=3 make upload PROJECT=...
+#ifndef SOIL_SENSOR_COUNT
+#define SOIL_SENSOR_COUNT 1
+#endif
+
 #define AIR_SDA    41
 #define AIR_SCL    42
 
@@ -60,6 +75,12 @@ Adafruit_SHT31 sht31 = Adafruit_SHT31(&airWire);
 // Останній замір батареї — щоб showTelemetry() не робив власний,
 // не вмикаючи дільник двічі за цикл.
 float lastVbat = 0;
+
+// Останнє СИРЕ значення ґрунту — те саме, що йде в soil_raw телеметрії.
+// На екран іде саме воно, а не відсоток: відсоток залежить від калібрування,
+// яке ще не завершене, тож на столі він вводить в оману. Сире число не
+// залежить ні від чого й порівнюється між вузлами напряму.
+int lastSoilRaw = 0;
 
 void powerOnVext() {
   pinMode(VEXT_CTRL, OUTPUT);
@@ -286,20 +307,28 @@ void showTelemetry(int soilPercent, float airTemp, float airHum) {
   display.clear();
   display.drawString(0, 0, "AIR TEMP: " + String(airTemp, 1) + "°C");
   display.drawString(0, 14, "AIR HUM: " + String(airHum, 1) + "%");
-  display.drawString(0, 28, "SOIL: " + String(soilPercent) + "%");
+  // Сире ADC замість відсотка: 0..4095, менше = вологіше.
+  display.drawString(0, 28, "SOIL: " + String(lastSoilRaw) + " adc");
   display.drawString(0, 42, "BAT: " + String(lastVbat, 2) + "V");
   display.display();
 }
 
 void loop() {
   SoilReadings soil = readSoilSensors();
+#if SOIL_SENSOR_COUNT == 3
   int humSoil = medianOf3(soil.s1, soil.s2, soil.s3);
+#else
+  int humSoil = soil.s1;
+#endif
+  lastSoilRaw = humSoil;
 
   // Три входи окремо, а не лише медіана. Медіана саме для того й потрібна, щоб
   // пережити один відпалий сенсор мовчки — але на столі це шкодить: не видно,
   // до якого піна щуп узагалі підключений і чи підключений хоч до одного.
   // Порожній вхід плаває під стелею АЦП, справжній щуп у ґрунті дає 1000-3000.
-  LOG("soil pins: s1=%d s2=%d s3=%d -> median %d\n",
+  // "using", а не "median": при SOIL_SENSOR_COUNT=1 медіани тут нема, і
+  // старий підпис приховував би саме те, що ми щойно ловили.
+  LOG("soil pins: s1=%d s2=%d s3=%d -> using %d\n",
       soil.s1, soil.s2, soil.s3, humSoil);
   int soilPercent = soilRawToPercent(humSoil);
 
