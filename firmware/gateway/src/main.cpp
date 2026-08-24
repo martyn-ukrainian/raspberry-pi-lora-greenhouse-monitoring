@@ -9,7 +9,11 @@
 #endif
 
 // Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262)
-#define MAX_NODES 3
+
+// Плат Heltec усього три: два вузли й цей шлюз. Тому й рядків на екрані два.
+// Номер 0 тут був за часів, коли та сама плата працювала вузлом greenhouse-1;
+// тепер вона шлюз, і порожній рядок "gh0: ---" лише плутав би.
+#define MAX_NODES 2
 
 #define LORA_NSS   8
 #define LORA_SCK   9
@@ -306,10 +310,10 @@ void onReceive() {
   receivedFlag = true;
 }
 
-int nodeIds[MAX_NODES] = {0, 1, 2};
-unsigned long lastSeen[MAX_NODES] = {0, 0, 0};
-int lastRssi[MAX_NODES] = {0, 0, 0};
-float lastSnr[MAX_NODES] = {0, 0, 0};
+int nodeIds[MAX_NODES] = {1, 2};
+unsigned long lastSeen[MAX_NODES] = {0, 0};
+int lastRssi[MAX_NODES] = {0, 0};
+float lastSnr[MAX_NODES] = {0, 0};
 
 int parseNodeId(const String &json) {
   int idx = json.indexOf("\"node_id\":");
@@ -403,7 +407,38 @@ void drawSignalBars(int x, int y, int tier) {
   }
 }
 
+// Екран мигав, бо loop() перемальовував його раз на секунду беззастережно —
+// навіть коли жоден піксель не мінявся. Кожен showLastSeen() це clear() плюс
+// повне переливання буфера по I2C, і саме ця безпідставна робота була видна
+// як миготіння.
+//
+// Тому кадр спершу збирається в рядок, і якщо він збігається з попереднім,
+// малювання не відбувається взагалі. Тепер екран оновлюється тоді, коли на
+// ньому справді щось інше: прийшов пакет, змінився RSSI, цокнув лічильник
+// "N s ago" — а не за розкладом.
+String lastFrame;
+
 void showLastSeen() {
+  // Опис кадру в тому ж порядку, що й малювання. Порівнюємо саме те, що
+  // побачить око: якщо рядок не змінився, картинка теж не змінилась.
+  String frame;
+#ifdef AGRO_WIFI
+  frame += sinkLabel();
+#endif
+  for (int i = 0; i < MAX_NODES; i++) {
+    frame += "|" + String(nodeIds[i]) + ":";
+    if (lastSeen[i] == 0) {
+      frame += "---";
+    } else if (millis() - lastSeen[i] < CONNECTION_TIMEOUT_MS) {
+      frame += String(lastRssi[i]) + "," + String(signalTier(lastRssi[i], lastSnr[i]));
+    } else {
+      frame += getSecAgo(lastSeen[i]);
+    }
+  }
+
+  if (frame == lastFrame) return;
+  lastFrame = frame;
+
   display.clear();
   display.setColor(WHITE);
 #ifdef AGRO_WIFI
@@ -476,5 +511,10 @@ void loop() {
 #endif
 
   showLastSeen();
-  delay(1000);
+
+  // Було 1000 мс. Такт вкоротився, бо перемальовка тепер сама вирішує, чи є
+  // що малювати, і секундна пауза більше не потрібна, щоб її стримувати.
+  // Заразом прийнятий пакет забирається з буфера SX1262 у рази швидше — а він
+  // уміщає рівно один, тож поки ми спали, наступний міг би не влізти.
+  delay(50);
 }
