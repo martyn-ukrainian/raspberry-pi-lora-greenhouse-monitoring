@@ -22,22 +22,80 @@ Full pinout, wiring, and firmware — [`firmware/README.md`](./firmware/README.m
 
 ## Soil sensor characterisation (v1.2 vs v2.0)
 
-Measured in a small 1 kg soil bucket, water added in 50 mL increments, sensor output logged as raw ADC + mV via a dedicated bench firmware — [`firmware/soil-calibration`](./firmware/soil-calibration).
+Measured in a 1 kg soil bucket, water added in increments, output logged as raw
+ADC + mV over USB by a dedicated bench firmware
+([`firmware/soil-calibration`](./firmware/soil-calibration)). Two specimens of
+each version, same ADC channel, same hole, same soil — so the difference can
+only come from the sensor.
 
-**v2.0 wins outright**: roughly 4× faster warm-up (direct battery-life win on a sleeping node) and ~6.6× finer moisture resolution than v1.2, whose 5V-only design comes out compressed and noisier on the node's 3.3V supply.
+| | v1.2 | v2.0 | |
+|---|---:|---:|---|
+| air | 2229 mV | 2721 mV | |
+| dry soil | 2101 mV | 2409 mV | |
+| noise σ | 2.9 mV | **1.05 mV** | 2.8× quieter |
+| `T±10` warm-up | 0.4 s | **0.1 s** | 4× faster |
+| sensitivity to water | 12.6 mV/mL | 12.1 mV/mL | **the same** |
 
-![v2.0 calibration curve: water added (mL) vs sensor output (mV)](firmware/soil-calibration/data/calibration_curve.png)
+**v2.0 wins, but not for the reason the air-to-soil span suggested.** That span
+is 2.4× wider on v2.0 — and it turned out to be a poor predictor: both versions
+move almost identically per millilitre of water. The real advantage is **≈3×,
+and it is entirely noise**. Since a battery node has no 5 V rail at all (the
+Heltec's 5V pin is fed from USB) and v1.2 is a 5 V design running compressed at
+3.3 V, the reserve batch is the one that belongs in the node.
 
-Each successive water addition moves the reading less than the last — the sensor saturates. Modeled as geometric decay of the per-step delta:
+A control measurement decided how much of this to believe: `v1.2-A` was
+re-inserted at the end of the session and read **9 mV** away from its own first
+measurement — that is the reproducibility of the whole procedure, not ADC noise.
+The 310 mV version gap is 34× that error and stands; the 2–5 mV spread between
+specimens of one batch is below it and was withdrawn as unmeasured.
+
+### Calibration curve: water added vs sensor output
+
+![Calibration curve](./firmware/soil-calibration/data/calibration_curve.png)
+
+Each successive addition moves the reading less than the last — the sensor
+saturates. Modelled as geometric decay of the per-step delta, which is the same
+exponential written two ways:
 
 ```
-mV(V) = mV_last + Δ_last · r^((V − V_last) / step)        r = Δ_last / Δ_prev
-d(mV)/dV = (Δ_last · ln r / step) · r^((V − V_last) / step)    (sensitivity, mV per mL)
+mV(V) = C + A · r^(V / step)     ≡     C + A · e^(−V/k),   k = −step / ln r
 ```
 
-Measured on `v20a`: `r ≈ 0.35` — the next equal-size (50 mL) step does roughly 35% of the previous one's work. The first clean 50 mL step moves the reading ~35× harder per mL than the last 150 mL step.
+Measured on v2.0: **r ≈ 0.35** — each equal 50 mL step does about 35% of the
+previous one's work; equivalently **k ≈ 52 mL**. Fit RMS 9.7 mV over a 1535 mV
+range, i.e. 0.6%.
 
-Full numbers and method — [`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
+The consequence is a **240× spread in sensitivity**: 12.0 mV per mL in dry soil,
+0.05 mV per mL in a watered greenhouse bed.
+
+### Why the reported percentage is logarithmic
+
+![Moisture scale](./firmware/soil-calibration/data/scale_vs_water.png)
+
+Plotted against *water*, the logarithmic scale is a straight line and `map()`
+is the bent one — which of the two matches physics is visible at a glance. Half
+the water added reads **50%**; the linear scale calls the same soil **94%**.
+
+The bars are the same fact per equal 25 mL portion: linear gives the first
+portion **38 points** and the last **0.3** — a 128× difference for the same
+amount of water. Logarithmic gives every portion the same weight.
+
+![Scale steepness](./firmware/soil-calibration/data/scale_curve.png)
+
+A linear `map()` spreads percentage evenly across *voltage*, not across *water*,
+so it eats the whole wet half of the range — exactly where a greenhouse lives.
+Its midpoint reads 89% where the soil is only halfway.
+
+The firmware converts through the measured curve instead, and ships the **raw
+ADC alongside the percentage**: the percentage is an interpretation whose scale
+is not final yet, while the raw value is the measurement and lets the entire
+history be recomputed without reflashing nodes in the field.
+
+Non-linear calibration is standard practice in soil science, not an invention
+here — Topp's 1980 equation is a cubic polynomial, and modern work finds
+capacitive sensors fit polynomial and exponential models best. Method, numbers
+and sources: [`docs/нелінійна-шкала.md`](./docs/нелінійна-шкала.md),
+[`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
 
 ## Architecture
 
