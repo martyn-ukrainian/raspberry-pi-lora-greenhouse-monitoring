@@ -688,14 +688,26 @@ void enterDeepSleep() {
   const uint64_t cycleUs = (uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL;
   const uint64_t awakeUs = (uint64_t)millis() * 1000ULL;
 
-  // Якщо робота чомусь зайняла весь цикл — не лягаємо на нуль, а даємо
-  // хвилину: інакше вузол крутився б без сну й висадив батарею за добу.
-  uint64_t sleepUs = awakeUs + 60ULL * 1000000ULL < cycleUs
-                         ? cycleUs - awakeUs
-                         : 60ULL * 1000000ULL;
+  // Якщо робота чомусь зайняла весь цикл — не лягаємо на нуль: інакше вузол
+  // крутився б без сну й висадив батарею за добу.
+  //
+  // Межа пропорційна, і це не дрібниця. Раніше тут стояли жорсткі 60 с, і при
+  // SLEEP_MINUTES=1 вони дорівнювали ЦІЛОМУ циклу: умова не спрацьовувала
+  // ніколи, компенсація часу роботи мовчки вимикалась, сон завжди виходив
+  // рівно 60 с — а фактичний цикл ставав 76 с при вікні 16,6 с. Лог при цьому
+  // незворушно рапортував "cycle 1 min". На 15 хвилинах цього не видно, тому
+  // й проїхало непоміченим до першого стендового прогону на хвилині.
+  const uint64_t floorUs = 60ULL * 1000000ULL;
+  const uint64_t minSleepUs = (cycleUs / 2 < floorUs) ? cycleUs / 2 : floorUs;
 
-  LOG("Awake %lu ms, sleeping %llu s (cycle %d min)\n",
-      millis(), sleepUs / 1000000ULL, SLEEP_MINUTES);
+  uint64_t sleepUs = (awakeUs + minSleepUs < cycleUs) ? cycleUs - awakeUs
+                                                      : minSleepUs;
+
+  // Фактичний цикл, а не замовлений: якщо нижня межа таки спрацювала, різницю
+  // видно одразу, і не доведеться вираховувати її з часу між рядками.
+  LOG("Awake %lu ms, sleeping %llu s -> cycle %llu s (asked %d min)\n",
+      millis(), sleepUs / 1000000ULL,
+      (awakeUs + sleepUs) / 1000000ULL, SLEEP_MINUTES);
   LOG_FLUSH();
 
   esp_sleep_enable_timer_wakeup(sleepUs);
