@@ -29,6 +29,7 @@
 """
 
 import json
+import select
 import socket
 from collections.abc import Iterator
 from pathlib import Path
@@ -215,24 +216,72 @@ def enable_keepalive(conn: socket.socket) -> None:
 
 
 def iter_tcp_lines() -> Iterator[str]:
+    """
+    Один шлюз, одне з'єднання — але завжди НАЙСВІЖІШЕ.
+
+    Наївний варіант "accept, читай до кінця, accept знову" виглядає простіше й
+    ламається на найчастішому сценарії: шлюз перезавантажили або перепрошили.
+    Стара сесія при цьому не закривається — платі нема чим надіслати FIN, вона
+    просто зникла, — тож ядро тримає її ESTAB, а нове підключення чекає в черзі
+    непрочитаним. Розсмоктується лише коли keepalive визнає стару мертвою, тобто
+    хвилини за півтори. Рівно такий провал і спостерігався після перепрошивки.
+
+    Тому слухаємо приймальний сокет РАЗОМ з поточним з'єднанням: щойно
+    приходить нове, старе закривається без церемоній. Шлюз у нас один, і
+    друге підключення означає саме те, що попереднє вже не існує.
+
+    Рядки збираємо вручну, а не через makefile(): файловий обʼєкт блокується в
+    readline() і не дає одночасно дивитись на приймальний сокет.
+    """
     with socket.create_server((TCP_HOST, TCP_PORT)) as server:
         logger.info("Waiting for gateway on tcp://%s:%d", TCP_HOST, TCP_PORT)
 
+        conn: socket.socket | None = None
+        buffer = b""
+
         while True:
-            conn, address = server.accept()
-            logger.info("Gateway connected from %s", address[0])
-            enable_keepalive(conn)
+            watch = [server] if conn is None else [server, conn]
+            ready, _, _ = select.select(watch, [], [], 1.0)
+
+            if server in ready:
+                fresh, address = server.accept()
+                enable_keepalive(fresh)
+                if conn is not None:
+                    logger.info("Gateway reconnected, dropping the previous session")
+                    conn.close()
+                logger.info("Gateway connected from %s", address[0])
+                conn, buffer = fresh, b""
+                # Наступним колом: у `ready` ще лежить закритий сокет.
+                continue
+
+            if conn is None or conn not in ready:
+                continue
 
             try:
-                with conn, conn.makefile("r", encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        yield line.strip()
+                chunk = conn.recv(4096)
             except OSError as exc:
                 logger.warning("Gateway connection lost: %s", exc)
+                chunk = b""
 
-            # Не виходимо: плата перепідключиться сама, і єдине, що має статись
-            # при обриві — пауза в даних, а не смерть сервісу.
-            logger.info("Gateway disconnected, waiting for it to come back")
+            if not chunk:
+                # Не виходимо: плата повернеться сама, і обрив має лишитись
+                # паузою в даних, а не смертю сервісу.
+                logger.info("Gateway disconnected, waiting for it to come back")
+                conn.close()
+                conn, buffer = None, b""
+                continue
+
+            buffer += chunk
+            while b"\n" in buffer:
+                raw, buffer = buffer.split(b"\n", 1)
+                yield raw.decode("utf-8", errors="replace").strip()
+
+            # Ціла телеметрія в один рядок не буває довшою за кілобайт. Якщо
+            # межі рядка не видно й після 64 КБ — на тому кінці не наш формат,
+            # і накопичувати далі означало б їсти памʼять без надії.
+            if len(buffer) > 65536:
+                logger.warning("No line break in 64 KB from gateway, dropping buffer")
+                buffer = b""
 
 
 def open_source() -> Iterator[str]:

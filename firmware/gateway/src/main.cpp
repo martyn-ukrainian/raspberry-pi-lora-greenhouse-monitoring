@@ -148,20 +148,56 @@ void backlogPush(const String &line) {
   backlogCount++;
 }
 
+// Записати рядок ЦІЛКОМ або не лишити після себе напівживого потоку.
+//
+// WiFiClient::write() має право записати менше, ніж просили — буфер TCP не
+// гумовий. Раніше тут стояв println() з перевіркою лише на нуль, і частковий
+// запис проходив як успіх: хвіст рядка зникав, приймач склеював залишок з
+// початком наступного, і в лог адаптера сипалось
+// `Skipping malformed packet: 0,"soil_raw":739,...}:1,"air_temperature":...`.
+//
+// Якщо дописати не вдалось, рвемо з'єднання свідомо: після перепідключення
+// потік почнеться з чистої межі рядка, а недописаний вимір лягає в чергу й
+// доїде повторно. Мовчки лишити зсунуту межу означало б псувати КОЖЕН
+// наступний пакет, а не один.
+bool sinkWriteLine(const String &line) {
+  String out = line + "\n";
+  const uint8_t *buf = (const uint8_t *)out.c_str();
+  size_t len = out.length();
+  size_t sent = 0;
+
+  while (sent < len) {
+    if (!sink.connected()) break;
+    size_t n = sink.write(buf + sent, len - sent);
+    if (n == 0) break;
+    sent += n;
+  }
+
+  if (sent == len) return true;
+
+  sink.stop();
+  return false;
+}
+
 void sinkFlush() {
   // Про втрату повідомляємо ПЕРШИМ рядком після відновлення. Інакше провал у
   // даних на сервері виглядав би як тиша в ефірі, тобто як несправність
   // вузла — а причина була в мережі. Той самий принцип, що з CRC_BURST:
   // не мовчати про те, чого в самих даних не видно.
   if (backlogDropped > 0) {
-    sink.printf("{\"type\":\"event\",\"node_id\":%d,\"code\":%d,\"detail\":%lu}\n",
-                GW_NODE_ID, GWEV_SINK_DROP, backlogDropped);
+    char buf[96];
+    snprintf(buf, sizeof(buf),
+             "{\"type\":\"event\",\"node_id\":%d,\"code\":%d,\"detail\":%lu}",
+             GW_NODE_ID, GWEV_SINK_DROP, backlogDropped);
+    // Через ту саму перевірену дорогу, що й усе інше: printf() тут мав би
+    // рівно ту ж проблему часткового запису.
+    if (!sinkWriteLine(buf)) return;
     backlogDropped = 0;
   }
 
   while (backlogCount > 0) {
-    if (sink.println(backlog[backlogHead]) == 0) return;  // не пішло — лишаємо в черзі
-    backlog[backlogHead] = String();                      // звільняємо рядок одразу
+    if (!sinkWriteLine(backlog[backlogHead])) return;  // не пішло — лишаємо в черзі
+    backlog[backlogHead] = String();                   // звільняємо рядок одразу
     backlogHead = (backlogHead + 1) % SINK_BACKLOG;
     backlogCount--;
   }
@@ -253,9 +289,9 @@ const char *sinkLabel() {
 void emitLine(const String &line) {
   Serial.println(line);
 #ifdef AGRO_WIFI
-  // Порядок важливий: connected() перевіряємо ПЕРЕД println(), інакше запис у
-  // мертвий сокет мовчки з'їв би рядок. Нуль записаних байтів — теж відмова.
-  if (!sink.connected() || sink.println(line) == 0) {
+  // Порядок важливий: connected() перевіряємо ПЕРЕД записом, інакше запис у
+  // мертвий сокет мовчки з'їв би рядок.
+  if (!sink.connected() || !sinkWriteLine(line)) {
     backlogPush(line);
   }
 #endif
