@@ -123,6 +123,10 @@ const int SOIL_PINS[3] = {SOIL_1, SOIL_2, SOIL_3};
 // Кожне прокидання — свіжий boot, тож SHT31 щоразу проходить ту саму
 // "притирку", через яку в журналі ловили NAN у перші цикли після ресету.
 // Тому читаємо з повторами, а не один раз.
+// Скільки чекати після подачі Vext, перш ніж чіпати I2C. Даташит SHT31 дає
+// ~1,5 мс на старт; беремо з запасом, бо ціна помилки — цикл без повітря.
+#define SENSOR_SETTLE_MS 20
+
 #define SHT_RETRIES 3
 #define SHT_RETRY_DELAY_MS 150
 
@@ -295,11 +299,29 @@ void powerOnVext() {
   vextOnAtMs = millis();
 }
 
+#ifdef AGRO_SCREEN_TRACE
+// Визначено нижче, поруч із showTelemetry: там живе решта роботи з екраном, а
+// сюди потрібне лише ім'я — прогрів іде раніше за будь-який показ телеметрії.
+void screenStage(const String &line1, const String &line2);
+#endif
+
 void waitForSoilWarmup() {
   unsigned long elapsed = millis() - vextOnAtMs;
-  if (elapsed < SOIL_WARMUP_MS) {
-    delay(SOIL_WARMUP_MS - elapsed);
+  if (elapsed >= SOIL_WARMUP_MS) return;
+
+#ifdef AGRO_SCREEN_TRACE
+  // Дрібними кроками з лічильником: десять секунд нерухомого екрана читаються
+  // як зависання, і саме вони створювали враження, що плата не працює.
+  unsigned long left;
+  while ((elapsed = millis() - vextOnAtMs) < SOIL_WARMUP_MS) {
+    left = (SOIL_WARMUP_MS - elapsed + 999) / 1000;
+    screenStage("WAKE #" + String(rtcLog.bootCount),
+                "soil warmup " + String(left) + "s");
+    delay(200);
   }
+#else
+  delay(SOIL_WARMUP_MS - elapsed);
+#endif
 }
 
 void powerOffVext() {
@@ -334,6 +356,24 @@ float readBatteryVolts() {
   delay(10);
 
   analogSetPinAttenuation(VBAT_ADC, ADC_11db);
+
+  // ЧИ ЦЕ ВЗАГАЛІ БАТАРЕЯ. Той самий захист, що в greenhouse-node.
+  //
+  // Поріг "нижче 2,5 В = батареї нема" не працює: на USB БЕЗ комірки дільник
+  // читає шину зарядника, тобто цілком правдоподібні 3,7-4,1 В. Саме так цей
+  // вузол рапортував vbat 4.02 і 4.25, стоячи на кабелі без жодної банки.
+  //
+  // Розрізняє їх СТАБІЛЬНІСТЬ, а не рівень: шина зарядника імпульсна й гуляє
+  // на сотні мілівольт між замірами, а справжня комірка стоїть рівно.
+  uint32_t lo = 4095, hi = 0;
+  for (int i = 0; i < 8; i++) {
+    uint32_t one = analogReadMilliVolts(VBAT_ADC);
+    if (one < lo) lo = one;
+    if (one > hi) hi = one;
+    delay(3);
+  }
+  const bool unstable = (hi - lo) > 40;   // 40 мВ на дільнику = ~200 мВ на комірці
+
   uint32_t mv = 0;
   for (int i = 0; i < 8; i++) {
     mv += analogReadMilliVolts(VBAT_ADC);
@@ -343,6 +383,15 @@ float readBatteryVolts() {
   digitalWrite(VBAT_CTRL, LOW);  // дільник назад у вимкнений стан
 
   float volts = (mv * VBAT_DIVIDER) / 1000.0f;
+
+  // NAN, а не нуль: "не знаємо" це не "розряджено вщент".
+  if (unstable || volts < 2.5f) {
+    return NAN;
+  }
+
+  // Події про низький заряд — тільки коли напруга справді відома. Інакше вузол
+  // на USB щоцикл рапортував би критичний розряд неіснуючої батареї, і серед
+  // цього шуму справжня подія загубилась би.
   if (volts < VBAT_CRITICAL_V) {
     logEvent(EV_VBAT_CRITICAL);
   } else if (volts < VBAT_LOW_V) {
@@ -495,6 +544,11 @@ bool readAir(float &airTemp, float &airHum) {
     if (!isnan(airTemp) && !isnan(airHum)) {
       return true;
     }
+
+    // Повторити те саме звернення до сенсора, який уже мовчить, — марно.
+    // Скидання повертає його з підвислого стану, у який він міг потрапити на
+    // старті живлення; без цього три спроби були трьома однаковими невдачами.
+    sht31.reset();
     delay(SHT_RETRY_DELAY_MS);
   }
 
@@ -527,7 +581,11 @@ String buildTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
   // Сире значення — щоб шкалу можна було переглянути заднім числом; див.
   // коментар до soilRawToPercent().
   json += ",\"soil_raw\":" + String(lastSoilRaw);
-  json += ",\"vbat\":" + String(vbat, 2);
+  // Немає поля = не знаємо, рівно як з повітрям вище. Приймальний бік
+  // відрізнить це від нуля, а nullable-колонка в базі це вже вміє.
+  if (!isnan(vbat)) {
+    json += ",\"vbat\":" + String(vbat, 2);
+  }
   json += ",\"boot\":" + String(rtcLog.bootCount);
 
   if (rtcLog.errFlags != 0) {
@@ -546,8 +604,44 @@ String buildTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
   return json;
 }
 
+// ---------------------------------------------------------------------------
+// Стендовий показ ходу циклу (AGRO_SCREEN_TRACE)
+// ---------------------------------------------------------------------------
+// У бойовому режимі екран засвічується ЛИШЕ після ручного RESET
+// (`if (!wokeFromTimer())` нижче), а на пробудженні за таймером не вмикається
+// зовсім. Це правильна економія — OLED їсть ~10-20 мА, і на 16-секундному
+// вікні кожні 5 хвилин це помітна частка добового бюджету.
+//
+// Але на столі наслідок неприємний: плата, яка справно шле, виглядає
+// вимкненою і не реагує ні на що. Тому окремий прапорець, який показує ХІД
+// циклу — прокинувся, гріє ґрунт, передав, засинає, — щоб було видно, що вона
+// жива. Для теплиці не вмикати.
+#ifdef AGRO_SCREEN_TRACE
+bool screenReady = false;
+
+void screenBegin() {
+  if (screenReady) return;
+  resetDisplay();
+  display.init();
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+  screenReady = true;
+}
+
+void screenStage(const String &line1, const String &line2) {
+  screenBegin();
+  display.clear();
+  display.drawString(0, 0, line1);
+  display.drawString(0, 14, line2);
+  display.display();
+}
+#define SCREEN_STAGE(a, b) screenStage((a), (b))
+#else
+#define SCREEN_STAGE(a, b) ((void)0)
+#endif
+
 void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
-                   float vbat) {
+                   float vbat, bool txOk) {
   resetDisplay();
   display.init();
   display.flipScreenVertically();
@@ -557,14 +651,17 @@ void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
   display.drawString(0, 0, "AIR TEMP: " + (airOk ? String(airTemp, 1) + "C" : "--"));
   display.drawString(0, 12, "AIR HUM: " + (airOk ? String(airHum, 1) + "%" : "--"));
   display.drawString(0, 24, "SOIL: " + String(soilPercent) + "%");
-  display.drawString(0, 36, "BAT: " + String(vbat, 2) + "V");
+  // NAN = живимось не від комірки. "USB" чесніше за "nan" і за вигадані вольти.
+  display.drawString(0, 36, "BAT: " + (isnan(vbat) ? String("USB") : String(vbat, 2) + "V"));
 
   // Людина стоїть біля плати з ліхтариком саме тоді, коли щось не так —
   // хай бачить, чи є непередані помилки, не чекаючи серверу.
   if (rtcLog.errFlags != 0) {
     display.drawString(0, 48, "ERR: 0x" + String(rtcLog.errFlags, HEX));
   } else {
-    display.drawString(0, 48, "SLEEP: " + String(SLEEP_MINUTES) + " min");
+    // Головне, заради чого людина дивиться на екран: пакет пішов чи ні.
+    display.drawString(0, 48, String(txOk ? "SENT" : "TX FAIL") + " · sleep " +
+                                  String(SLEEP_MINUTES) + "min");
   }
   display.display();
 
@@ -623,6 +720,18 @@ void setup() {
   // час замірів і знімаємо перед сном.
   powerOnVext();
 
+  // Пауза між подачею Vext і першим доторком до шини.
+  //
+  // Раніше її не було зовсім: powerOnVext() і одразу begin(). SHT31 після
+  // подачі живлення піднімається ~1,5 мс, і опитування в цей момент лишало
+  // його в непевному стані — сенсор відповідав на адресу (тобто I2C_FAIL не
+  // спрацьовував), але читання поверталось NAN. Саме така картина була на
+  // вузлі 2: err=258, тобто SHT_NAN без I2C_FAIL.
+  //
+  // У greenhouse-node цей проміжок випадково заповнював initDisplay(), тому
+  // там проблеми не видно. 20 мс проти 16-секундного вікна — ніщо.
+  delay(SENSOR_SETTLE_MS);
+
   pinMode(AIR_SDA, INPUT_PULLUP);
   pinMode(AIR_SCL, INPUT_PULLUP);
   airWire.begin(AIR_SDA, AIR_SCL);
@@ -675,9 +784,15 @@ void setup() {
     logEvent(EV_LORA_TX_FAIL);
   }
 
+  const bool txOk = (txState == RADIOLIB_ERR_NONE);
+#ifdef AGRO_SCREEN_TRACE
+  // На стенді — щоразу: сенс режиму саме в тому, щоб цикл було видно.
+  showTelemetry(soilPercent, airOk, airTemp, airHum, vbat, txOk);
+#else
   if (!wokeFromTimer()) {
-    showTelemetry(soilPercent, airOk, airTemp, airHum, vbat);
+    showTelemetry(soilPercent, airOk, airTemp, airHum, vbat, txOk);
   }
+#endif
 
   enterDeepSleep();
 }
