@@ -21,6 +21,9 @@
 #include <esp_sleep.h>
 #include <esp_system.h>
 
+// ПЕРІОД ЦИКЛУ в хвилинах — від старту до старту, а не тривалість сну.
+// Плата віднімає власний час роботи, тож при вікні 30 с вона спить 14:30, і
+// цикл виходить рівно 15:00. Так заміри різних вузлів лишаються синхронними.
 #ifndef SLEEP_MINUTES
 #define SLEEP_MINUTES 15
 #endif
@@ -576,10 +579,29 @@ void enterDeepSleep() {
   radio.sleep();
   powerOffVext();
 
-  LOG("Sleeping %d min\n", SLEEP_MINUTES);
+  // ЦИКЛ, а не сон: віднімаємо час, який плата вже пропрацювала.
+  //
+  // Раніше тут стояв фіксований сон, і цикл виходив 15 хв ПЛЮС робота — тобто
+  // 15:30 при вікні 30 с, і ще довше, якщо передача пішла з повтору. Заміри
+  // від різних вузлів розповзались би в часі, а порівнювати їх треба парно.
+  //
+  // Тепер плата спить рівно стільки, щоб від старту до старту вийшло
+  // SLEEP_MINUTES. Час роботи вимірюється сам, тож затягнуте пробудження
+  // компенсується коротшим сном, а не зсуває наступний цикл.
+  const uint64_t cycleUs = (uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL;
+  const uint64_t awakeUs = (uint64_t)millis() * 1000ULL;
+
+  // Якщо робота чомусь зайняла весь цикл — не лягаємо на нуль, а даємо
+  // хвилину: інакше вузол крутився б без сну й висадив батарею за добу.
+  uint64_t sleepUs = awakeUs + 60ULL * 1000000ULL < cycleUs
+                         ? cycleUs - awakeUs
+                         : 60ULL * 1000000ULL;
+
+  LOG("Awake %lu ms, sleeping %llu s (cycle %d min)\n",
+      millis(), sleepUs / 1000000ULL, SLEEP_MINUTES);
   LOG_FLUSH();
 
-  esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL);
+  esp_sleep_enable_timer_wakeup(sleepUs);
   esp_deep_sleep_start();
   // сюди виконання не повертається — наступний рядок буде вже `setup()`
 }

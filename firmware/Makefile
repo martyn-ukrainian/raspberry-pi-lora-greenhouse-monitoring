@@ -33,7 +33,11 @@ export WIFI_SSID WIFI_PASS INGEST_URL INGEST_TOKEN
 
 WIFI_FLAGS = -DWIFI_SSID=\"$(WIFI_SSID)\" -DWIFI_PASS=\"$(WIFI_PASS)\" \
              -DINGEST_URL=\"$(INGEST_URL)\" -DINGEST_TOKEN=\"$(INGEST_TOKEN)\"
-PIO_EXTRA_FLAGS = $(if $(filter wifi_%,$(PIO_ENV)),$(WIFI_FLAGS),)
+# Прапорці ззовні НЕ затираються: `PLATFORMIO_BUILD_FLAGS='-DNODE_ID=1' make
+# upload` має працювати. Раніше Makefile підставляв свою змінну беззастережно,
+# і зовнішній -DNODE_ID мовчки зникав — вузол лишався з номером 0, а виявилось
+# це вже на живій телеметрії.
+PIO_EXTRA_FLAGS = $(strip $(if $(filter wifi_%,$(PIO_ENV)),$(WIFI_FLAGS),) $(PLATFORMIO_BUILD_FLAGS))
 
 # Прогін калібрувального стенду: ім'я йде в назву CSV-файлу, щоб прогони не
 # зливались в одну купу. `make soil-log RUN=v12-vs-v20`.
