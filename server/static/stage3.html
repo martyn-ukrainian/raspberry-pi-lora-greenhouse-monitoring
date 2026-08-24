@@ -62,7 +62,10 @@
   .panel{margin-bottom:6px}
   .panel .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:2px}
   .panel .lab b{font-weight:600}
-  .panel svg{width:100%;height:120px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+  .panel .plot{position:relative;padding-left:48px}
+  .panel svg{width:100%;height:168px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+  .panel .yaxis{position:absolute;left:0;top:0;width:44px;height:168px;pointer-events:none}
+  .panel .yaxis span{position:absolute;right:5px;transform:translateY(-50%);font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
   .axis{color:var(--mut);font-size:11px;display:flex;justify-content:space-between;margin-top:4px}
 </style>
 </head>
@@ -86,6 +89,9 @@
       <option value="10">10 хв</option>
       <option value="15">15 хв</option>
       <option value="30">30 хв</option>
+      <option value="60">1 год</option>
+      <option value="240">4 год</option>
+      <option value="720">12 год</option>
     </select>
     <span>Показник:</span>
     <span class="metric-toggle" id="metric">
@@ -111,11 +117,11 @@
       Точка на хвилину (середнє), тонка риска — розкид усередині хвилини.</div>
     <div class="panel">
       <div class="lab"><span style="color:var(--ref)"><b>безперервний</b> · stage3-reference</span><span id="rY" class="num"></span></div>
-      <div id="chRef"></div>
+      <div class="plot"><div class="yaxis" id="yRef"></div><div id="chRef"></div></div>
     </div>
     <div class="panel">
       <div class="lab"><span style="color:var(--low)"><b>зі сном</b> · stage3-lowpower</span><span id="lY" class="num"></span></div>
-      <div id="chLow"></div>
+      <div class="plot"><div class="yaxis" id="yLow"></div><div id="chLow"></div></div>
     </div>
     <div id="chAxis" class="axis"></div>
   </div>
@@ -166,11 +172,12 @@ function merge(buckets){
   return n ? { n, avg:wsum/n, min:mn, max:mx, buckets:present } : { n:0 };
 }
 
+function bucketMin(){ return Math.max(1, Math.round(WIN/120)); }
 async function nodeStats(node){
   const since = new Date(Date.now() - WIN*60000).toISOString();
   // Дрібний бакет (1 хв), щоб для сплячого зловити саме хвилини передачі, а не
   // розмити їх на все вікно; злиття робимо самі.
-  const buckets = await api(`/measurements/aggregate?node_id=${encodeURIComponent(node)}&since=${encodeURIComponent(since)}&bucket_minutes=1`).catch(()=>[]);
+  const buckets = await api(`/measurements/aggregate?node_id=${encodeURIComponent(node)}&since=${encodeURIComponent(since)}&bucket_minutes=${bucketMin()}`).catch(()=>[]);
   const st = merge(buckets);
   const latest = await api(`/measurements/latest?node_id=${encodeURIComponent(node)}`).catch(()=>null);
   return { st, latest, buckets };
@@ -247,11 +254,12 @@ function ghostLine(pts, X, Y, color){
   if(pts.length<2) return '';
   return `<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${color}" stroke-width="1.2" stroke-dasharray="3 4" stroke-opacity=".45"/>`;
 }
-function svgPanel(pts, ghost, xMin, xMax, yMin, yMax, color, ghostColor){
-  const W=1000,H=120,pad=12;
+function svgPanel(pts, ghost, xMin, xMax, yMin, yMax, color, ghostColor, gridPx, lineColor){
+  const W=1000,H=168,pad=14;
   const X=(t)=>((t-xMin)/(xMax-xMin||1))*W;
   const Y=(v)=>H-pad-((v-yMin)/(yMax-yMin||1))*(H-2*pad);
-  if(!pts.length) return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${ghostLine(ghost,X,Y,ghostColor)}</svg>`;
+  const grid=(gridPx||[]).map(py=>`<line x1="0" y1="${py.toFixed(1)}" x2="${W}" y2="${py.toFixed(1)}" stroke="${lineColor}" stroke-width="1" stroke-opacity=".6"/>`).join('');
+  if(!pts.length) return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${ghostLine(ghost,X,Y,ghostColor)}</svg>`;
   let spread='', line='', dots='';
   for(const p of pts){
     const x=X(p.t).toFixed(1);
@@ -259,25 +267,31 @@ function svgPanel(pts, ghost, xMin, xMax, yMin, yMax, color, ghostColor){
     dots+=`<circle cx="${x}" cy="${Y(p.avg).toFixed(1)}" r="2.4" fill="${color}"/>`;
   }
   line=`<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${ghostLine(ghost,X,Y,ghostColor)}${spread}${line}${dots}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${ghostLine(ghost,X,Y,ghostColor)}${spread}${line}${dots}</svg>`;
 }
 function renderCharts(aB, bB){
   const A=points(aB), B=points(bB);
   const all=[...A,...B];
   $("#chartMetric").textContent = "· "+(METRIC==="raw"?"сире ADC":"відсоток")+", вікно "+WIN+" хв";
-  if(!all.length){ $("#chRef").innerHTML=$("#chLow").innerHTML='<div class="empty" style="padding:40px 0;text-align:center">даних нема</div>'; $("#chAxis").innerHTML=''; $("#rY").textContent=$("#lY").textContent=''; return; }
+  if(!all.length){ $("#chRef").innerHTML=$("#chLow").innerHTML='<div class="empty" style="padding:40px 0;text-align:center">даних нема</div>'; $("#chAxis").innerHTML=''; $("#yRef").innerHTML=$("#yLow").innerHTML=''; $("#rY").textContent=$("#lY").textContent=''; return; }
   const xMin=Date.now()-WIN*60000, xMax=Date.now();
   let lo=Infinity,hi=-Infinity;
   for(const p of all){ lo=Math.min(lo,p.min); hi=Math.max(hi,p.max); }
   const span=Math.max(hi-lo, METRIC==="raw"?10:1), pad=span*0.15;
   const yMin=lo-pad, yMax=hi+pad;
   const cs=getComputedStyle(document.documentElement);
-  const ref=cs.getPropertyValue('--ref').trim(), low=cs.getPropertyValue('--low').trim();
-  $("#chRef").innerHTML=svgPanel(A,B,xMin,xMax,yMin,yMax,ref,low);
-  $("#chLow").innerHTML=svgPanel(B,A,xMin,xMax,yMin,yMax,low,ref);
-  const d=dec();
-  $("#rY").textContent=`${fmt(yMax,d)} … ${fmt(yMin,d)}`;
-  $("#lY").textContent=`${fmt(yMax,d)} … ${fmt(yMin,d)}`;
+  const ref=cs.getPropertyValue('--ref').trim(), low=cs.getPropertyValue('--low').trim(), lineC=cs.getPropertyValue('--line').trim();
+  const d=dec(), H=168, padY=14;
+  const Ypx=(v)=>H-padY-((v-yMin)/(yMax-yMin||1))*(H-2*padY);
+  // 5 рівнів шкали, рівномірно від yMin до yMax
+  const ticks=[]; for(let i=0;i<5;i++){ const v=yMin+(yMax-yMin)*i/4; ticks.push({v, py:Ypx(v)}); }
+  const gridPx=ticks.map(t=>t.py);
+  $("#chRef").innerHTML=svgPanel(A,B,xMin,xMax,yMin,yMax,ref,low,gridPx,lineC);
+  $("#chLow").innerHTML=svgPanel(B,A,xMin,xMax,yMin,yMax,low,ref,gridPx,lineC);
+  const axisHTML=ticks.map(t=>`<span style="top:${t.py.toFixed(1)}px">${fmt(t.v,d)}</span>`).join('');
+  $("#yRef").innerHTML=axisHTML; $("#yLow").innerHTML=axisHTML;
+  const u=METRIC==="raw"?"ADC":"%";
+  $("#rY").textContent=u; $("#lY").textContent=u;
   // мітки часу: початок вікна, середина, кінець
   const t0=new Date(xMin).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
   const tm=new Date((xMin+xMax)/2).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
