@@ -85,10 +85,6 @@
   <div class="controls">
     <span>Вікно:</span>
     <select id="win">
-      <option value="5">5 хв</option>
-      <option value="10">10 хв</option>
-      <option value="15">15 хв</option>
-      <option value="30">30 хв</option>
       <option value="60">1 год</option>
       <option value="240">4 год</option>
       <option value="720">12 год</option>
@@ -138,7 +134,9 @@ function nid(key, def){ try { return localStorage.getItem(key) || def; } catch {
 let REF = nid("stage3_ref", "stage3-reference");
 let LOW = nid("stage3_low", "stage3-lowpower");
 let METRIC = nid("stage3_metric", "raw");        // raw | pct
-let WIN = parseInt(nid("stage3_win", "5"), 10);
+const WIN_OPTS = [60, 240, 720];
+let WIN = parseInt(nid("stage3_win", "60"), 10);
+if(!WIN_OPTS.includes(WIN)){ WIN = 60; try{localStorage.setItem("stage3_win","60")}catch{} }
 
 const BASE = location.protocol.startsWith("http") ? location.origin
   : (nid("agro_base", "http://agro-pi.local:8008"));
