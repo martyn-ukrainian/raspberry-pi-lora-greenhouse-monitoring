@@ -3,6 +3,11 @@
 #include <SSD1306Wire.h>
 #include <esp_system.h>
 
+#ifdef AGRO_WIFI
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#endif
+
 // Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262)
 #define MAX_NODES 3
 
@@ -59,6 +64,7 @@
 #define GWEV_RX_FAIL      2   // detail = код RadioLib
 #define GWEV_CRC_BURST    3   // detail = скільки битих пакетів усього
 #define GWEV_BOOT         4   // detail = esp_reset_reason()
+#define GWEV_SINK_DROP    5   // detail = скільки рядків втрачено при обриві
 
 // CRC-mismatch — рядове явище в ефірі, по події на кожен залив би лог. Але
 // повністю ковтати його теж не можна: саме темп їх появи показує, що зв'язок
@@ -70,9 +76,193 @@ SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 
 unsigned long crcErrors = 0;
 
+// ---------------------------------------------------------------------------
+// Другий отримувач потоку: TCP-сокет (AGRO_WIFI)
+// ---------------------------------------------------------------------------
+// Приймач шлюза — Pi, і донедавна єдиною дорогою туди був USB. Виявилось, що
+// шнур, яким плата під'єднана до малини, зарядний: лінії даних у ньому не
+// розведені, тому `lsusb` на Pi порожній, хоча плата живиться нормально.
+//
+// Замість шукати інший шнур потік дублюється в мережу. Ключове рішення —
+// НЕ переносити сюди логіку `usb_adapter.py`: розбір NDJSON, мапінг номера
+// вузла в мітку (`config/nodes.yaml`) і розкладання бітмаска `err` на окремі
+// події лишаються в Python, де вони вже написані й покриті типами. Шлюз шле
+// в сокет ті самі байти, що й у Serial, а адаптер лише міняє джерело —
+// serial.readline() на socket.makefile().
+//
+// Serial при цьому НЕ вимикається: коли плату приносять до комп'ютера з
+// нормальним шнуром, той самий потік видно як раніше.
+#ifdef AGRO_WIFI
+
+#ifndef WIFI_SSID
+#error "AGRO_WIFI без -DWIFI_SSID: облікові дані передаються прапорцем, у репозиторії їм не місце"
+#endif
+#ifndef WIFI_PASS
+#error "AGRO_WIFI без -DWIFI_PASS"
+#endif
+
+// Ім'я, а не адреса, за замовчуванням: IP малини вже їздив по DHCP (.88 -> .104),
+// і кожен переїзд означав би перепрошивку. Ім'я в домені .local розв'язує mDNS.
+#ifndef SINK_HOST
+#define SINK_HOST "agro-pi.local"
+#endif
+#ifndef SINK_PORT
+#define SINK_PORT 9009
+#endif
+
+// Скільки рядків тримати, поки сокета нема. 24 — це приблизно хвилина потоку
+// від безперервного вузла або шість годин від сплячого з 15-хвилинним циклом.
+// Більше сенсу не має: довгий обрив однаково втрачає дані, і чесніше сказати
+// про це подією, ніж роздувати буфер.
+#define SINK_BACKLOG            24
+#define SINK_RETRY_MS           5000
+#define SINK_CONNECT_TIMEOUT_MS 1500
+#define MDNS_QUERY_TIMEOUT_MS   2000
+#define WIFI_CONNECT_TIMEOUT_MS 15000
+
+WiFiClient sink;
+IPAddress sinkIp;
+bool sinkIpKnown = false;
+bool mdnsStarted = false;
+bool sinkEverTried = false;
+unsigned long lastSinkTryMs = 0;
+
+String backlog[SINK_BACKLOG];
+int backlogHead = 0;
+int backlogCount = 0;
+unsigned long backlogDropped = 0;
+
+void backlogPush(const String &line) {
+  if (backlogCount == SINK_BACKLOG) {
+    // Черга повна — витісняємо найстаріше. Свіжий вимір цінніший за давній:
+    // під час обриву важливіше донести те, що сталось щойно.
+    backlogHead = (backlogHead + 1) % SINK_BACKLOG;
+    backlogCount--;
+    backlogDropped++;
+  }
+  backlog[(backlogHead + backlogCount) % SINK_BACKLOG] = line;
+  backlogCount++;
+}
+
+void sinkFlush() {
+  // Про втрату повідомляємо ПЕРШИМ рядком після відновлення. Інакше провал у
+  // даних на сервері виглядав би як тиша в ефірі, тобто як несправність
+  // вузла — а причина була в мережі. Той самий принцип, що з CRC_BURST:
+  // не мовчати про те, чого в самих даних не видно.
+  if (backlogDropped > 0) {
+    sink.printf("{\"type\":\"event\",\"node_id\":%d,\"code\":%d,\"detail\":%lu}\n",
+                GW_NODE_ID, GWEV_SINK_DROP, backlogDropped);
+    backlogDropped = 0;
+  }
+
+  while (backlogCount > 0) {
+    if (sink.println(backlog[backlogHead]) == 0) return;  // не пішло — лишаємо в черзі
+    backlog[backlogHead] = String();                      // звільняємо рядок одразу
+    backlogHead = (backlogHead + 1) % SINK_BACKLOG;
+    backlogCount--;
+  }
+}
+
+bool resolveSink() {
+  if (sinkIpKnown) return true;
+
+  // Літерал адреси приймаємо як є — це шлях для мереж без mDNS.
+  if (sinkIp.fromString(SINK_HOST)) {
+    sinkIpKnown = true;
+    return true;
+  }
+
+  // Звичайний DNS у домені .local не працює: імена там роздає mDNS, і питати
+  // треба саме його. Суфікс відрізаємо, бо queryHost() хоче голе ім'я.
+  String host = SINK_HOST;
+  if (host.endsWith(".local")) host = host.substring(0, host.length() - 6);
+
+  IPAddress found = MDNS.queryHost(host, MDNS_QUERY_TIMEOUT_MS);
+  if ((uint32_t)found == 0) return false;
+
+  sinkIp = found;
+  sinkIpKnown = true;
+  return true;
+}
+
+// Викликається раз на прохід loop(). Нічого довгого тут бути не може: поки ми
+// тут, прийнятий пакет чекає у буфері SX1262, а він уміщає рівно один.
+void sinkService() {
+  if (WiFi.status() != WL_CONNECTED) {
+    if (sink.connected()) sink.stop();
+    // Перепідключенням займається сам ESP у фоні (WiFi.begin() уже викликаний).
+    // Наше завдання — не вдавати, що сокет живий, і забути адресу: після
+    // повернення мережі малина може приїхати з іншою.
+    sinkIpKnown = false;
+    return;
+  }
+
+  if (!mdnsStarted) {
+    MDNS.begin("agro-gateway");
+    mdnsStarted = true;
+  }
+
+  if (sink.connected()) return;
+
+  if (sinkEverTried && (long)(millis() - lastSinkTryMs) < SINK_RETRY_MS) return;
+  sinkEverTried = true;
+  lastSinkTryMs = millis();
+
+  if (!resolveSink()) return;
+
+  if (!sink.connect(sinkIp, SINK_PORT, SINK_CONNECT_TIMEOUT_MS)) {
+    // Могли достукатись за старою адресою — наступного разу перепитаємо mDNS.
+    sinkIpKnown = false;
+    return;
+  }
+
+  sinkFlush();
+}
+
+void wifiBegin() {
+  WiFi.mode(WIFI_STA);
+  // Шлюз живиться від мережі, економити нема на чому, а сон радіо додає
+  // затримок і губить перші пакети після простою.
+  WiFi.setSleep(false);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  unsigned long until = millis() + WIFI_CONNECT_TIMEOUT_MS;
+  while (WiFi.status() != WL_CONNECTED && (long)(millis() - until) < 0) {
+    delay(100);
+  }
+}
+
+// Що показувати на екрані про стан каналу. Шлюз стоїть біля малини без
+// клавіатури й монітора, тож екран — єдиний спосіб побачити, чи дані взагалі
+// доїжджають, не заходячи по SSH.
+const char *sinkLabel() {
+  if (WiFi.status() != WL_CONNECTED) return "wifi?";
+  if (!sink.connected()) return "net?";
+  return "net";
+}
+
+#endif  // AGRO_WIFI
+
+// Єдина точка виводу: усе, що шлюз каже назовні, проходить тут. Serial лишався
+// б достатнім, поки приймач висить на USB; з появою мережевого каналу дублювати
+// довелось би в кожному місці виводу, і рано чи пізно одне з них забулось би.
+void emitLine(const String &line) {
+  Serial.println(line);
+#ifdef AGRO_WIFI
+  // Порядок важливий: connected() перевіряємо ПЕРЕД println(), інакше запис у
+  // мертвий сокет мовчки з'їв би рядок. Нуль записаних байтів — теж відмова.
+  if (!sink.connected() || sink.println(line) == 0) {
+    backlogPush(line);
+  }
+#endif
+}
+
 void emitEvent(int code, int detail) {
-  Serial.printf("{\"type\":\"event\",\"node_id\":%d,\"code\":%d,\"detail\":%d}\n",
-                GW_NODE_ID, code, detail);
+  char buf[96];
+  snprintf(buf, sizeof(buf),
+           "{\"type\":\"event\",\"node_id\":%d,\"code\":%d,\"detail\":%d}",
+           GW_NODE_ID, code, detail);
+  emitLine(buf);
 }
 
 void powerOnVext() {
@@ -135,6 +325,20 @@ void setup() {
   initDisplay();
   showStatus("Loading...", "");
 
+#ifdef AGRO_WIFI
+  // Мережа піднімається ДО радіо навмисно: тоді подія про завантаження йде вже
+  // по готовому каналу, а не лягає в чергу. Пауза до 15 с тут нічого не варта —
+  // вузли шлють безперервно, перший же наступний пакет буде прийнято.
+  showStatus("WiFi...", WIFI_SSID);
+  wifiBegin();
+  sinkService();
+  if (WiFi.status() == WL_CONNECTED) {
+    showStatus("WiFi: OK", WiFi.localIP().toString());
+  } else {
+    showStatus("WiFi: FAIL", "check SSID/pass");
+  }
+#endif
+
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
   int state = radio.begin(868.0);
 
@@ -161,7 +365,7 @@ void reportReceived(const String &received, int rssi, float snr) {
     + ",\"rssi\":" + String(rssi)
     + ",\"snr\":" + String(snr, 1)
     + "}";
-  Serial.println(withSignal);
+  emitLine(withSignal);
 }
 
 String getSecAgo(unsigned long seenAtMillis) {
@@ -202,7 +406,13 @@ void drawSignalBars(int x, int y, int tier) {
 void showLastSeen() {
   display.clear();
   display.setColor(WHITE);
+#ifdef AGRO_WIFI
+  // Повний заголовок займає майже всі 128 px і наліз би на індикатор каналу.
+  display.drawString(0, 0, "Greenhouse");
+  display.drawString(96, 0, sinkLabel());
+#else
   display.drawString(0, 0, "Greenhouse Monitor");
+#endif
 
   for (int i = 0; i < MAX_NODES; i++) {
     String line = "gh" + String(nodeIds[i]) + ": ";
@@ -260,6 +470,10 @@ void loop() {
 
     radio.startReceive();
   }
+
+#ifdef AGRO_WIFI
+  sinkService();
+#endif
 
   showLastSeen();
   delay(1000);

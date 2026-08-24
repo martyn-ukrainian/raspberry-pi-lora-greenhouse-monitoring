@@ -44,5 +44,13 @@ class Settings(BaseSettings):
     gateway_port: str = "/tmp/agro_gateway"
     baudrate: int = 115200
 
+    # Звідки адаптер бере потік шлюза: "serial" (USB) або "tcp" (мережа).
+    # Причина існування другого варіанту прозаїчна: шнур, яким плата
+    # під'єднана до Pi, зарядний — ліній даних у ньому нема, тому USB-тракт
+    # непрацездатний фізично. Формат потоку в обох випадках той самий NDJSON.
+    gateway_source: str = "serial"
+    gateway_tcp_host: str = "0.0.0.0"
+    gateway_tcp_port: int = 9009
+
 
 settings = Settings()

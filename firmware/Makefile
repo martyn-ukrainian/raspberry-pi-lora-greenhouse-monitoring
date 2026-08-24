@@ -30,9 +30,28 @@ PI_GATEWAY_PORT ?= /dev/ttyUSB0
 # збірки лишаються байт у байт такими, як були.
 -include .env
 export WIFI_SSID WIFI_PASS INGEST_URL INGEST_TOKEN
+export WIFI_HOME_SSID WIFI_HOME_PASS INGEST_HOME_URL SINK_HOST SINK_PORT
 
-WIFI_FLAGS = -DWIFI_SSID=\"$(WIFI_SSID)\" -DWIFI_PASS=\"$(WIFI_PASS)\" \
-             -DINGEST_URL=\"$(INGEST_URL)\" -DINGEST_TOKEN=\"$(INGEST_TOKEN)\"
+# Мереж дві, бо призначення різні. Калібрувальний стенд їздить у поле й
+# чіпляється до телефонної точки (WIFI_*), а шлюз стоїть біля роутера й мусить
+# бути в ОДНІЙ мережі з малиною (WIFI_HOME_*) — інакше він підключиться, але
+# сервера не побачить. Одна спільна пара змінних тут уже підвела: шлюз пішов
+# шукати точку, якої вдома нема.
+NET_SSID = $(if $(filter gateway,$(PROJECT)),$(WIFI_HOME_SSID),$(WIFI_SSID))
+NET_PASS = $(if $(filter gateway,$(PROJECT)),$(WIFI_HOME_PASS),$(WIFI_PASS))
+
+# SINK_* потрібні лише шлюзу (куди дублювати NDJSON-потік). Підставляються
+# умовно, щоб порожня змінна не перетворилась на -DSINK_HOST="" і не затерла
+# дефолт у прошивці.
+#
+# INGEST_* шлюзу не потрібні взагалі: він шле NDJSON у TCP-сокет адаптера, а не
+# HTTP-пачки в хмару. Тому й не підставляються — щоб хмарний токен не осідав у
+# бінарнику пристрою, якому він ні для чого.
+WIFI_FLAGS = -DWIFI_SSID=\"$(NET_SSID)\" -DWIFI_PASS=\"$(NET_PASS)\" \
+             $(if $(filter gateway,$(PROJECT)),,\
+               -DINGEST_URL=\"$(INGEST_URL)\" -DINGEST_TOKEN=\"$(INGEST_TOKEN)\") \
+             $(if $(SINK_HOST),-DSINK_HOST=\"$(SINK_HOST)\",) \
+             $(if $(SINK_PORT),-DSINK_PORT=$(SINK_PORT),)
 # Прапорці ззовні НЕ затираються: `PLATFORMIO_BUILD_FLAGS='-DNODE_ID=1' make
 # upload` має працювати. Раніше Makefile підставляв свою змінну беззастережно,
 # і зовнішній -DNODE_ID мовчки зникав — вузол лишався з номером 0, а виявилось
@@ -66,9 +85,9 @@ build:
 
 upload: _ensure-host-pio
 	@$(if $(filter wifi_%,$(PIO_ENV)),\
-	  test -n "$(WIFI_SSID)" || { echo "нема WIFI_SSID — заповни firmware/.env"; exit 1; }; \
-	  test -n "$(WIFI_PASS)" || { echo "нема WIFI_PASS — заповни firmware/.env"; exit 1; }; \
-	  echo "Wi-Fi: $(WIFI_SSID) -> $(INGEST_URL)";)
+	  test -n "$(NET_SSID)" || { echo "нема SSID — заповни firmware/.env"; exit 1; }; \
+	  test -n "$(NET_PASS)" || { echo "нема пароля — заповни firmware/.env"; exit 1; }; \
+	  echo "Wi-Fi: $(NET_SSID)";)
 	SERIAL_PORT=$(SERIAL_PORT) PLATFORMIO_BUILD_FLAGS='$(PIO_EXTRA_FLAGS)' \
 		pio run -d $(PROJECT) $(PIO_ENV_ARG) -t upload
 
