@@ -719,6 +719,57 @@ void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
   display.displayOff();
 }
 
+#if defined(AGRO_SCREEN_TRACE) || SAMPLE_WINDOW_MS > 0
+// Вікно неспання: поки воно триває, вузол ПРОДОВЖУЄ міряти й слати,
+// а не показує знімок.
+//
+// Бойова логіка — один пакет на цикл, і в цьому весь сенс сну. Але на столі
+// вона робить перевірку неможливою: занурив щуп у воду — і бачиш те саме
+// число, бо замір уже зроблено, а наступний буде аж наступного циклу. Тут
+// цикл вимірювання й передачі крутиться далі, тож реакція сенсора видно
+// одразу і на екрані, і в базі.
+//
+// Ціна — кілька пакетів замість одного й повне вікно радіо в ефірі. Для
+// батареї це неприйнятно, тому в lowpower_5min/15min цього блоку нема.
+void runAwakeWindow(int soilPercent, bool airOk, float airTemp, float airHum,
+                    float vbat, bool txOk) {
+  // Вікно тримається доти, доки потрібне ХОЧ ОДНОМУ зі споживачів: даним або
+  // очам. Інакше при OLED_ON_MS > SAMPLE_WINDOW_MS екран гаснув би раніше,
+  // ніж людина встигає прочитати, а при зворотному співвідношенні обірвався б
+  // збір даних.
+  unsigned long windowMs = SAMPLE_WINDOW_MS;
+#ifdef AGRO_SCREEN_TRACE
+  if (OLED_ON_MS > windowMs) windowMs = OLED_ON_MS;
+#endif
+  const unsigned long until = millis() + windowMs;
+
+  while (true) {
+#ifdef AGRO_SCREEN_TRACE
+    drawTelemetryFrame(soilPercent, airOk, airTemp, airHum, vbat, txOk);
+#endif
+    if ((long)(millis() - until) >= 0) break;
+
+    delay(SAMPLE_EVERY_MS);
+
+    soilPercent = readSoilPercent();
+    airOk = readAir(airTemp, airHum);
+    vbat = readBatteryVolts();
+
+    String msg = buildTelemetry(soilPercent, airOk, airTemp, airHum, vbat);
+    txOk = (radio.transmit(msg) == RADIOLIB_ERR_NONE);
+    if (txOk) {
+      LOG_LN("Sent! " + msg);
+    } else {
+      LOG_LN("Send failed");
+    }
+  }
+
+#ifdef AGRO_SCREEN_TRACE
+  display.displayOff();
+#endif
+}
+#endif
+
 void enterDeepSleep() {
   // Порядок важливий: спершу приспати радіо, потім зняти Vext. SX1262 у
   // standby їсть ~1,5 мА — це в 30 разів більше за сплячий ESP32, тобто без
@@ -824,42 +875,15 @@ void setup() {
 
   waitForSoilWarmup();
 
+  int soilPercent = readSoilPercent();
+
 #ifdef SOIL_AB_TEST
-  // Діагностичний режим знімає свою пару тут: йому потрібен саме ПЕРШИЙ замір
-  // циклу поруч із повільним, і розносити це між setup() і loop() було б
-  // важче читати, ніж лишити разом.
-  soilFastRaw = readSoilRawMedian();
+  // Штатний (швидкий) замір уже зроблено — він і лишається soil_moisture,
+  // щоб бойовий тракт не змінювався. Далі тримаємо живлення й знімаємо
+  // другий, повільний, для порівняння.
+  soilFastRaw = lastSoilRaw;
   readSoilSlow();
 #endif
-
-  // Замірів тут більше нема — ними займається loop().
-}
-
-// Скільки триває вікно неспання, від подачі Vext. Вікно тримається доти, доки
-// потрібне ХОЧ ОДНОМУ споживачеві: даним або очам. Інакше при
-// OLED_ON_MS > SAMPLE_WINDOW_MS екран гаснув би раніше, ніж людина встигає
-// прочитати, а при зворотному співвідношенні обірвався б збір даних.
-unsigned long awakeWindowMs() {
-  unsigned long ms = SAMPLE_WINDOW_MS;
-#ifdef AGRO_SCREEN_TRACE
-  if (OLED_ON_MS > ms) ms = OLED_ON_MS;
-#endif
-  return ms;
-}
-
-// Один прохід loop() = один відлік: заміряти, зібрати пакет, передати. Скільки
-// таких проходів буде — вирішує умова внизу, а не окрема функція з власним
-// циклом усередині.
-//
-// Так виглядає природно, але варто пам'ятати, ЧОМУ це працює: пробудження з
-// deep sleep — не продовження виконання, а скидання. Плата стартує з нуля,
-// проходить setup() і потрапляє сюди заново. Тому setup() робить лише
-// ініціалізацію, а все, що повторюється, живе тут.
-//
-// Пережити сон здатна тільки RTC-пам'ять (rtcLog), тому лічильник пробуджень і
-// прапорці помилок лежать саме там, а не у звичайних глобальних змінних.
-void loop() {
-  int soilPercent = readSoilPercent();
 
   float airTemp = 0, airHum = 0;
   bool airOk = readAir(airTemp, airHum);
@@ -867,9 +891,8 @@ void loop() {
 
   String msg = buildTelemetry(soilPercent, airOk, airTemp, airHum, vbat);
   int txState = radio.transmit(msg);
-  const bool txOk = (txState == RADIOLIB_ERR_NONE);
 
-  if (txOk) {
+  if (txState == RADIOLIB_ERR_NONE) {
     // Прапорці доїхали — тільки тепер їх можна гасити. Одометр errSeq
     // лишається рости, щоб сервер бачив повтори тієї самої помилки.
     rtcLog.errFlags = 0;
@@ -879,25 +902,18 @@ void loop() {
     logEvent(EV_LORA_TX_FAIL);
   }
 
-#ifdef AGRO_SCREEN_TRACE
-  drawTelemetryFrame(soilPercent, airOk, airTemp, airHum, vbat, txOk);
-#endif
-
-  // Вікно ще не вичерпане — повертаємось по наступний відлік.
-  if (millis() - vextOnAtMs < awakeWindowMs()) {
-    delay(SAMPLE_EVERY_MS);
-    return;
-  }
-
-#ifdef AGRO_SCREEN_TRACE
-  display.displayOff();
+  const bool txOk = (txState == RADIOLIB_ERR_NONE);
+#if defined(AGRO_SCREEN_TRACE) || SAMPLE_WINDOW_MS > 0
+  runAwakeWindow(soilPercent, airOk, airTemp, airHum, vbat, txOk);
 #else
-  // Поза стендовим режимом екран засвічується лише після ручного RESET —
-  // на пробудженні за таймером на нього однаково нема кому дивитись.
   if (!wokeFromTimer()) {
     showTelemetry(soilPercent, airOk, airTemp, airHum, vbat, txOk);
   }
 #endif
 
   enterDeepSleep();
+}
+
+void loop() {
+  // Не викликається: setup() завжди завершується deep sleep-ом.
 }
