@@ -157,6 +157,24 @@ float readBatteryVolts() {
   delay(10);
 
   analogSetPinAttenuation(VBAT_ADC, ADC_11db);
+  // ЧИ ЦЕ ВЗАГАЛІ БАТАРЕЯ.
+  //
+  // Поріг "нижче 2,5 В = батареї нема" не працює: на USB БЕЗ комірки дільник
+  // читає шину зарядника, тобто цілком правдоподібні 3,7-4,1 В. Прошивка
+  // рапортувала б неіснуючу батарею, і саме це заплутало нас 2026-08-23.
+  //
+  // Розрізняє їх СТАБІЛЬНІСТЬ, а не рівень: шина зарядника імпульсна й гуляє
+  // на сотні мілівольт між замірами, а справжня комірка стоїть рівно —
+  // заміряно в теплиці, 0,04 В за 50 хвилин.
+  uint32_t lo = 4095, hi = 0;
+  for (int i = 0; i < 8; i++) {
+    uint32_t one = analogReadMilliVolts(VBAT_ADC);
+    if (one < lo) lo = one;
+    if (one > hi) hi = one;
+    delay(3);
+  }
+  const bool unstable = (hi - lo) > 40;   // 40 мВ на дільнику = ~200 мВ на комірці
+
   uint32_t mv = 0;
   for (int i = 0; i < 8; i++) {
     mv += analogReadMilliVolts(VBAT_ADC);
@@ -164,7 +182,10 @@ float readBatteryVolts() {
   mv /= 8;
 
   digitalWrite(VBAT_CTRL, LOW);
-  return (mv * VBAT_DIVIDER) / 1000.0f;
+
+  float volts = (mv * VBAT_DIVIDER) / 1000.0f;
+  // NAN, а не нуль: "не знаємо" це не "розряджено вщент".
+  return (unstable || volts < 2.5f) ? NAN : volts;
 }
 
 struct SoilReadings {
@@ -256,7 +277,8 @@ String buildTelemetry(int soilRaw, int soilPercent, float airTemp, float airHum,
            "\"air_humidity\":" + String(airHum, 1) + ","
            "\"soil_moisture\":" + String(soilPercent) + ","
            "\"soil_raw\":" + String(soilRaw) + ","
-           "\"vbat\":" + String(vbat, 2) + ","
+           + (isnan(vbat) ? String("") : "\"vbat\":" + String(vbat, 2) + ",")
+           + 
            "\"uptime\":" + String(millis() / 1000) + "}";
 }
 
