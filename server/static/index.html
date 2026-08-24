@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Теплиця · живий монітор</title>
+<style>
+  /* Жодних зовнішніх ресурсів: PI у теплиці може бути без інтернету, тож
+     увесь стиль і скрипт — тут, шрифти системні, графік малюється сам. */
+  :root {
+    --bg:#f4f5f2; --panel:#ffffff; --panel2:#f7f8f5; --fg:#1a1e17; --mut:#646a5c;
+    --line:#e2e4dc; --acc:#3f7a34; --acc-soft:#e7f0e2;
+    --ok:#2f7d3a; --ok-bg:#e6f2e3; --warn:#8a5a12; --warn-bg:#f6ecd6; --bad:#b23b2c; --bad-bg:#f7e1dd;
+    --t1:#2d7fc4; --t2:#d0603e; --t3:#17978a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#12140f; --panel:#1b1e17; --panel2:#171a13; --fg:#ecefe4; --mut:#9aa08e;
+      --line:#2b2f24; --acc:#8cbf66; --acc-soft:#26331d;
+      --ok:#9ed58f; --ok-bg:#21331d; --warn:#e6c073; --warn-bg:#37300f; --bad:#f0a496; --bad-bg:#3d1f1a;
+      --t1:#5fa8e6; --t2:#ee8a6c; --t3:#3cbfae;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .num { font-variant-numeric:tabular-nums; }
+  header { display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+    padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0; font-weight:650; letter-spacing:.2px; }
+  header h1 small { color:var(--mut); font-weight:400; }
+  .conn { display:flex; gap:8px; align-items:center; margin-left:auto; flex-wrap:wrap; }
+  .conn input { width:230px; font:inherit; padding:7px 10px; border:1px solid var(--line);
+    border-radius:8px; background:var(--panel2); color:var(--fg); }
+  .conn button { font:inherit; padding:7px 12px; border:1px solid var(--line); border-radius:8px;
+    background:var(--panel2); color:var(--fg); cursor:pointer; }
+  .conn button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--mut); box-shadow:0 0 0 3px transparent; }
+  .dot.on { background:var(--ok); box-shadow:0 0 0 3px var(--ok-bg); }
+  .dot.off { background:var(--bad); box-shadow:0 0 0 3px var(--bad-bg); }
+  main { padding:18px 20px 40px; max-width:1500px; margin:0 auto; }
+  .banner { display:none; margin-bottom:16px; padding:11px 14px; border-radius:10px;
+    background:var(--bad-bg); color:var(--bad); border:1px solid var(--line); }
+  .layout { display:grid; grid-template-columns:1fr; gap:16px; }
+  @media (min-width:1080px){ .layout { grid-template-columns:1fr 340px; } }
+  .nodes { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; align-content:start; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .card.stale { opacity:.62; }
+  .card h2 { font-size:16px; margin:0 0 2px; display:flex; align-items:center; gap:8px; }
+  .card .sub { color:var(--mut); font-size:12.5px; margin-bottom:12px; }
+  .pill { font-size:11.5px; padding:2px 8px; border-radius:20px; background:var(--panel2); color:var(--mut); }
+  .pill.on { background:var(--ok-bg); color:var(--ok); } .pill.off { background:var(--bad-bg); color:var(--bad); }
+  .metrics { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  .m .k { color:var(--mut); font-size:12px; }
+  .m .v { font-size:23px; font-weight:600; line-height:1.15; }
+  .m .v small { font-size:12px; color:var(--mut); font-weight:400; }
+  .m.wide { grid-column:1/-1; }
+  .v.ok { color:var(--ok); } .v.warn { color:var(--warn); } .v.bad { color:var(--bad); }
+  .spark { width:100%; height:44px; display:block; margin-top:6px; }
+  .foot { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); display:flex; gap:14px;
+    flex-wrap:wrap; color:var(--mut); font-size:12px; }
+  aside { display:grid; gap:16px; align-content:start; }
+  .side { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .side h3 { font-size:14px; margin:0 0 10px; display:flex; justify-content:space-between; color:var(--mut); font-weight:600; }
+  .log { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow:auto; }
+  .row { font-size:13px; border-left:3px solid var(--line); padding:2px 0 2px 10px; }
+  .row.warn { border-color:var(--warn); } .row.bad { border-color:var(--bad); }
+  .row .t { color:var(--mut); font-size:11.5px; }
+  .empty { color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Теплиця · <small>живий монітор</small></h1>
+  <div class="conn">
+    <span id="dot" class="dot" title="стан підключення"></span>
+    <span id="connTxt" class="num" style="color:var(--mut);font-size:12.5px">—</span>
+    <input id="url" spellcheck="false" placeholder="http://192.168.0.88:8000">
+    <button id="save" class="primary">Підключити</button>
+  </div>
+</header>
+
+<main>
+  <div id="banner" class="banner"></div>
+  <div class="layout">
+    <section id="nodes" class="nodes"><div class="empty">Підключаюсь…</div></section>
+    <aside>
+      <div class="side">
+        <h3>Тривоги <span id="alCount" class="num"></span></h3>
+        <div id="alerts" class="log"><div class="empty">—</div></div>
+      </div>
+      <div class="side">
+        <h3>Події вузлів <span id="evCount" class="num"></span></h3>
+        <div id="events" class="log"><div class="empty">—</div></div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script>
+"use strict";
+// Простий живий дашборд PI-сервера. Опитує наявні роути (WebSocket сервер не
+// має), нічого не пише. Усе — на readonly GET, тому безпечно тримати відкритим.
+const $ = (s) => document.querySelector(s);
+const POLL_MS = 5000;
+const STALE_S = 180;           // вузол шле раз на кілька хвилин; 3 хв → "давно"
+const HISTORY = 40;            // точок у sparkline на вузол (у пам'яті вкладки)
+
+// Базовий URL сервера: якщо сторінку відкрито з самого PI (/live) — той самий
+// origin і поле сховане; якщо з file:// або іншого місця — беремо збережений
+// або типовий, і показуємо поле для правки.
+function defaultBase() {
+  if (location.protocol.startsWith("http")) return location.origin;
+  try { return localStorage.getItem("agro_base") || "http://192.168.0.88:8000"; } catch { return "http://192.168.0.88:8000"; }
+}
+let BASE = defaultBase();
+if (location.protocol.startsWith("http")) { $(".conn").querySelector("#url").style.display = "none"; $("#save").style.display = "none"; }
+else { $("#url").value = BASE; }
+
+$("#save").onclick = () => {
+  BASE = $("#url").value.trim().replace(/\/+$/, "");
+  try { localStorage.setItem("agro_base", BASE); } catch {}
+  boot();
+};
+
+async function api(path) {
+  const r = await fetch(BASE + path, { cache: "no-store" });
+  if (!r.ok) throw new Error(path + " → " + r.status);
+  return r.json();
+}
+
+function setConn(ok, text) {
+  $("#dot").className = "dot " + (ok ? "on" : "off");
+  $("#connTxt").textContent = text;
+}
+
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (isNaN(s)) return "—";
+  if (s < 90) return Math.round(s) + " с тому";
+  if (s < 5400) return Math.round(s / 60) + " хв тому";
+  if (s < 172800) return (s / 3600).toFixed(1) + " год тому";
+  return Math.round(s / 86400) + " дн тому";
+}
+function isStale(iso) { return (Date.now() - Date.parse(iso)) / 1000 > STALE_S; }
+
+// Клас за порогом теплиці: у межах → ok, інакше bad. Пороги приходять з
+// /greenhouses, тож фарбування завжди відповідає тому, за чим стежить сервер.
+function rangeClass(v, r) {
+  if (v == null || !r) return "";
+  if (r.min != null && v < r.min) return "bad";
+  if (r.max != null && v > r.max) return "bad";
+  return "ok";
+}
+
+// Мінімальний sparkline без бібліотек: нормуємо на власний діапазон і малюємо
+// polyline у SVG. Показує форму, не абсолют — для абсолюту є велике число.
+function spark(vals, color) {
+  const pts = vals.filter((v) => v != null);
+  if (pts.length < 2) return "";
+  const lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1;
+  const W = 280, H = 40, n = vals.length;
+  const xy = vals.map((v, i) => v == null ? null : [(i / (n - 1)) * W, H - ((v - lo) / span) * H]);
+  let d = "", pen = false;
+  for (const p of xy) { if (!p) { pen = false; continue; } d += (pen ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1) + " "; pen = true; }
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+}
+
+const history = {};   // node_id → { soil_moisture:[], air_temperature:[], vbat:[] }
+function pushHistory(id, m) {
+  const h = history[id] || (history[id] = { soil: [], temp: [], vbat: [] });
+  h.soil.push(m.soil_moisture); h.temp.push(m.air_temperature); h.vbat.push(m.vbat ?? null);
+  for (const k of ["soil", "temp", "vbat"]) if (h[k].length > HISTORY) h[k].shift();
+  return h;
+}
+
+function fmt(v, d = 0) { return v == null ? "—" : Number(v).toFixed(d); }
+function upt(s) {
+  if (s == null) return "—";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h} год ${m} хв` : `${m} хв`;
+}
+
+function nodeCard(g, m) {
+  if (!m) {
+    return `<div class="card stale"><h2>${g.label}</h2><div class="sub">${g.node_id}</div>
+      <div class="empty">ще нема вимірів</div></div>`;
+  }
+  const h = pushHistory(g.node_id, m);
+  const stale = isStale(m.timestamp);
+  const th = g.thresholds || {};
+  const soilPct = m.soil_moisture;
+  const link = (m.rssi != null || m.snr != null)
+    ? `<span class="pill">RSSI ${fmt(m.rssi)} · SNR ${fmt(m.snr, 1)}</span>` : "";
+  const bat = m.vbat != null ? `<span class="pill ${m.vbat < 3.4 ? "off" : "on"}">${fmt(m.vbat, 2)} В</span>` : "";
+  return `<div class="card ${stale ? "stale" : ""}">
+    <h2>${g.label} ${bat}${link}</h2>
+    <div class="sub">${g.node_id} · <span class="${stale ? "" : ""}">${ago(m.timestamp)}</span>${stale ? " · давно не було" : ""}</div>
+    <div class="metrics">
+      <div class="m"><div class="k">Ґрунт</div><div class="v num ${rangeClass(soilPct, th.soil_moisture)}">${fmt(soilPct)}<small> %${m.soil_raw != null ? " · raw " + m.soil_raw : ""}</small></div></div>
+      <div class="m"><div class="k">Повітря</div><div class="v num ${rangeClass(m.air_temperature, th.air_temperature)}">${fmt(m.air_temperature, 1)}<small> °C</small></div></div>
+      <div class="m"><div class="k">Вологість</div><div class="v num ${rangeClass(m.air_humidity, th.air_humidity)}">${fmt(m.air_humidity)}<small> %</small></div></div>
+      <div class="m"><div class="k">Аптайм</div><div class="v num" style="font-size:16px">${upt(m.uptime)}</div></div>
+      <div class="m wide"><div class="k">Ґрунт, останні ${h.soil.length}</div>${spark(h.soil, "var(--t3)") || '<div class="empty">збираю…</div>'}</div>
+    </div>
+    <div class="foot"><span>межа ґрунту ${th.soil_moisture ? fmt(th.soil_moisture.min) + "–" + fmt(th.soil_moisture.max) + " %" : "—"}</span>
+      <span>t ${th.air_temperature ? fmt(th.air_temperature.min) + "–" + fmt(th.air_temperature.max) + " °C" : "—"}</span></div>
+  </div>`;
+}
+
+function renderAlerts(list) {
+  $("#alCount").textContent = list.length ? list.length : "";
+  $("#alerts").innerHTML = list.length ? list.slice(0, 30).map((a) => {
+    const cls = a.kind === "high" || a.kind === "low" ? "bad" : "warn";
+    return `<div class="row ${cls}"><div>${a.node_id} · ${a.sensor} <b>${a.kind}</b>${a.value != null ? " (" + fmt(a.value, 1) + ")" : ""}</div>
+      <div class="t num">${a.created_at ? ago(a.created_at) : ""}${a.acknowledged ? " · опрацьовано" : ""}</div></div>`;
+  }).join("") : '<div class="empty">тривог нема</div>';
+}
+function renderEvents(list) {
+  $("#evCount").textContent = list.length ? list.length : "";
+  $("#events").innerHTML = list.length ? list.slice(0, 30).map((e) =>
+    `<div class="row"><div>${e.node_id} · ${e.name}${e.context != null ? " #" + e.context : ""}</div>
+      <div class="t num">${e.timestamp ? ago(e.timestamp) : ""} · ${e.source}</div></div>`).join("") : '<div class="empty">подій нема</div>';
+}
+
+let greenhouses = [];
+let timer = null;
+
+async function tick() {
+  try {
+    // Останній вимір по кожному вузлу — паралельно; вузли беремо з /greenhouses.
+    const latest = await Promise.all(greenhouses.map((g) =>
+      api("/measurements/latest?node_id=" + encodeURIComponent(g.node_id)).catch(() => null)));
+    $("#nodes").innerHTML = greenhouses.map((g, i) => nodeCard(g, latest[i])).join("")
+      || '<div class="empty">У конфігурації сервера нема жодного вузла.</div>';
+
+    const [alerts, events] = await Promise.all([
+      api("/alerts?limit=30").catch(() => []),
+      api("/events?limit=30").catch(() => []),
+    ]);
+    renderAlerts(alerts); renderEvents(events);
+
+    const seen = latest.filter(Boolean).length;
+    setConn(true, `${seen}/${greenhouses.length} вузлів · оновлено ${new Date().toLocaleTimeString("uk")}`);
+    $("#banner").style.display = "none";
+  } catch (e) {
+    setConn(false, "нема зв'язку");
+    const b = $("#banner");
+    b.textContent = `Не вдалось дістати дані з ${BASE}: ${e.message}. Перевір, що ти в тій самій мережі, що й PI, і що адреса та порт правильні (dev 8008, prod 8000).`;
+    b.style.display = "block";
+  }
+}
+
+async function boot() {
+  if (timer) clearInterval(timer);
+  setConn(false, "підключаюсь…");
+  $("#nodes").innerHTML = '<div class="empty">Підключаюсь до ' + BASE + '…</div>';
+  try {
+    greenhouses = await api("/greenhouses");
+  } catch (e) {
+    setConn(false, "нема зв'язку");
+    $("#banner").textContent = `Сервер ${BASE} не відповів (/greenhouses: ${e.message}). Адреса правильна? Сервер запущений?`;
+    $("#banner").style.display = "block";
+    $("#nodes").innerHTML = "";
+    return;
+  }
+  await tick();
+  timer = setInterval(tick, POLL_MS);
+}
+
+boot();
+</script>
+</body>
+</html>

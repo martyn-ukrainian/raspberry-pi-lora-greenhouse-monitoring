@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from alerts import router as alerts_router
 from database import init_db
@@ -28,6 +29,12 @@ app.include_router(measurements_router)
 app.include_router(greenhouses_router)
 app.include_router(alerts_router)
 app.include_router(events_router)
+
+# Живий монітор — статична сторінка, яку сервер віддає сам. Same-origin,
+# тож жодних CORS/адресних питань: у мережі теплиці відкриваєш <PI>:порт/live.
+# Каталог static/ містить один self-contained index.html без зовнішніх
+# ресурсів (PI може бути без інтернету).
+app.mount("/live", StaticFiles(directory="static", html=True), name="live")
 
 
 @app.get("/")
