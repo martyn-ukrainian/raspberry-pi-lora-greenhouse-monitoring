@@ -69,7 +69,8 @@
   .panel.stk .yaxis{height:200px} .panel.one .yaxis{height:320px}
   .key{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:3px}
   .panel .yaxis span{position:absolute;right:5px;transform:translateY(-50%);font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
-  .axis{color:var(--mut);font-size:11px;display:flex;justify-content:space-between;margin-top:4px}
+  .axis{color:var(--mut);font-size:11px;display:flex;justify-content:space-between;margin-top:4px;padding-left:48px}
+  .axis span{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -331,7 +332,11 @@ function renderCharts(aB, bB){
     $("#yOne").innerHTML=axis(ticks); $("#oneU").textContent=u;
   }
   const tt=(ms)=>new Date(ms).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
-  $("#chAxis").innerHTML=`<span>${tt(xMin)}</span><span>${tt((xMin+xMax)/2)}</span><span>${tt(xMax)} (зараз)</span>`;
+  // Кількість поділок за вікном: 1 год → кожні 10 хв, 4 год → 30 хв, 12 год → год.
+  const N = WIN<=60 ? 6 : WIN<=240 ? 8 : 12;
+  let ax='';
+  for(let i=0;i<=N;i++){ const ms=xMin+(xMax-xMin)*i/N; ax+=`<span>${i===N ? tt(ms)+' (зараз)' : tt(ms)}</span>`; }
+  $("#chAxis").innerHTML=ax;
 }
 
 async function tick(){
