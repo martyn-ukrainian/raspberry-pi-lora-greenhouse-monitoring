@@ -160,13 +160,17 @@ let lastData=null;
 const BASE = location.protocol.startsWith("http") ? location.origin
   : (nid("agro_base", "http://agro-pi.local:8008"));
 
+let SKEW = 0;                         // серверний час − час пристрою (мс)
+function now(){ return Date.now() + SKEW; }
 async function api(path){
   const r = await fetch(BASE + path, { cache: "no-store" });
+  const dh = r.headers.get("Date");   // синхронізуємось із годинником PI, а не пристрою
+  if (dh) { const t = Date.parse(dh); if (!isNaN(t)) SKEW = t - Date.now(); }
   if (!r.ok) throw new Error(path + " → " + r.status);
   return r.json();
 }
 function setConn(ok, t){ $("#dot").className = "dot " + (ok?"on":"off"); $("#connTxt").textContent = t; }
-function ago(iso){ const s=Math.max(0,(Date.now()-Date.parse(iso))/1000); if(isNaN(s))return "—";
+function ago(iso){ const s=Math.max(0,(now()-Date.parse(iso))/1000); if(isNaN(s))return "—";
   return s<90?Math.round(s)+" с тому":s<5400?Math.round(s/60)+" хв тому":s<172800?(s/3600).toFixed(1)+" год тому":Math.round(s/86400)+" дн тому"; }
 function fmt(v,d=0){ return v==null||isNaN(v)?"—":Number(v).toFixed(d); }
 
@@ -191,7 +195,7 @@ function merge(buckets){
 
 function bucketMin(){ return Math.max(1, Math.round(WIN/120)); }
 async function nodeStats(node){
-  const since = new Date(Date.now() - WIN*60000).toISOString();
+  const since = new Date(now() - WIN*60000).toISOString();
   // Дрібний бакет (1 хв), щоб для сплячого зловити саме хвилини передачі, а не
   // розмити їх на все вікно; злиття робимо самі.
   const buckets = await api(`/measurements/aggregate?node_id=${encodeURIComponent(node)}&since=${encodeURIComponent(since)}&bucket_minutes=${bucketMin()}`).catch(()=>[]);
@@ -206,7 +210,7 @@ function idField(kind, val){
 
 function renderCard(el, kind, node, data){
   const st = data.st, last = data.latest;
-  const fresh = last && (Date.now()-Date.parse(last.timestamp))/1000;
+  const fresh = last && (now()-Date.parse(last.timestamp))/1000;
   const sleeping = kind==="low";
   const noWin = !st.n;
   const staleTxt = last ? ago(last.timestamp) : "нема вимірів";
@@ -305,7 +309,7 @@ function renderCharts(aB, bB){
     $("#chAxis").innerHTML=''; $("#yOne").innerHTML=$("#yRef").innerHTML=$("#yLow").innerHTML='';
     $("#oneU").textContent=$("#rY").textContent=$("#lY").textContent=''; return;
   }
-  const xMin=Date.now()-WIN*60000, xMax=Date.now();
+  const xMin=now()-WIN*60000, xMax=now();
   let lo=Infinity,hi=-Infinity;
   for(const p of all){ lo=Math.min(lo,p.min); hi=Math.max(hi,p.max); }
   const span=Math.max(hi-lo, METRIC==="raw"?10:1), pd=span*0.15;
@@ -361,8 +365,9 @@ for(const btn of $("#view").querySelectorAll("button")){
     if(lastData) renderCharts(lastData.a, lastData.b); };
 }
 
-tick();
-setInterval(tick, POLL_MS);
+// Спершу дізнаємось час сервера (щоб перше ж вікно збіглося з даними),
+// потім малюємо й опитуємо далі.
+(async ()=>{ await api("/greenhouses").catch(()=>{}); tick(); setInterval(tick, POLL_MS); })();
 </script>
 </body>
 </html>
