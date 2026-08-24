@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вузли теплиці · монітор</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f3f2ec; --panel:#fbfbf8; --panel2:#f4f4ee; --fg:#1b1f18; --mut:#5f645a; --line:#dcdbd0;
+    --acc:#4b7a2c; --ok:#2c6a36; --ok-bg:#e1efda; --warn:#85560e; --warn-bg:#f7ecd3;
+    --bad:#a33a2d; --bad-bg:#f9e3de; --c1:#2d7fc4;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#141613; --panel:#1e211d; --panel2:#181b17; --fg:#eef0e8; --mut:#a4a99c; --line:#2d312a;
+    --acc:#8cbf66; --ok:#a4d89b; --ok-bg:#223520; --warn:#ecc56f; --warn-bg:#3a3014;
+    --bad:#f3a597; --bad-bg:#45211c; --c1:#5fa8e6;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.45 "IBM Plex Sans",system-ui,-apple-system,sans-serif}
+  .num{font-variant-numeric:tabular-nums}
+  header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{font-size:17px;margin:0;font-weight:650} header h1 small{color:var(--mut);font-weight:400}
+  .conn{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--mut);font-size:12.5px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--mut)}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
+  main{max-width:760px;margin:0 auto;padding:14px 16px 40px}
+  .banner{display:none;margin-bottom:14px;padding:11px 13px;border-radius:10px;background:var(--bad-bg);color:var(--fg);border:1px solid var(--line)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;margin-bottom:14px;
+    box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .card.stale{opacity:.7}
+  .top{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+  .top .nm{font-size:16px;font-weight:650} .top .id{color:var(--mut);font-size:12.5px}
+  .state{margin-left:auto;text-align:right;font-size:12.5px}
+  .state .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-weight:600;font-size:12.5px}
+  .badge.ok{background:var(--ok-bg);color:var(--ok)} .badge.warn{background:var(--warn-bg);color:var(--warn)} .badge.bad{background:var(--bad-bg);color:var(--bad)}
+  .big{display:flex;align-items:baseline;gap:8px}
+  .big .v{font-size:46px;font-weight:650;line-height:1} .big .u{color:var(--mut);font-size:14px}
+  .sub{color:var(--mut);font-size:12.5px;margin:2px 0 12px}
+  .meta{display:flex;gap:8px 10px;flex-wrap:wrap;font-size:12.5px}
+  .pill{padding:2px 9px;border-radius:20px;background:var(--panel2);color:var(--mut)}
+  .pill.warn{background:var(--warn-bg);color:var(--warn)} .pill.bad{background:var(--bad-bg);color:var(--bad)}
+  .plot{position:relative;padding-left:44px;margin-top:12px}
+  .plot svg{width:100%;height:120px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+  .yaxis{position:absolute;left:0;top:0;width:40px;height:120px;pointer-events:none}
+  .yaxis span{position:absolute;right:5px;transform:translateY(-50%);font-size:10px;color:var(--mut)}
+  .axis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--mut);margin-top:3px;padding-left:44px}
+  .empty{color:var(--mut);font-size:13px;text-align:center;padding:30px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Вузли теплиці <small>· монітор</small></h1>
+  <div class="conn"><span id="dot" class="dot"></span><span id="connTxt">—</span></div>
+</header>
+<main>
+  <div id="banner" class="banner"></div>
+  <div id="cards"><div class="empty">Підключаюсь…</div></div>
+</main>
+
+<script>
+"use strict";
+const $ = (s)=>document.querySelector(s);
+const POLL_MS = 15000;
+const HIST_MIN = 60;          // вікно графіка, хв
+const SIGMA_WARN = 3;         // порогів калібрування ще нема — орієнтир на розкид raw
+
+let SKEW = 0;                 // час сервера − час пристрою
+function srvNow(){ return Date.now()+SKEW; }
+async function api(path){
+  const r = await fetch(path, { cache:"no-store" });
+  const dh = r.headers.get("Date"); if(dh){ const t=Date.parse(dh); if(!isNaN(t)) SKEW=t-Date.now(); }
+  if(!r.ok) throw new Error(path+" → "+r.status);
+  return r.json();
+}
+function setConn(ok,t){ $("#dot").className="dot "+(ok?"on":"off"); $("#connTxt").textContent=t; }
+function ago(iso){ const s=Math.max(0,(srvNow()-Date.parse(iso))/1000); if(isNaN(s))return "—";
+  return s<90?Math.round(s)+" с тому":s<5400?Math.round(s/60)+" хв тому":s<172800?(s/3600).toFixed(1)+" год тому":Math.round(s/86400)+" дн тому"; }
+function fmt(v,d=0){ return v==null||isNaN(v)?"—":Number(v).toFixed(d); }
+
+// Плавна крива (Catmull-Rom → Безьє), як на /stage3.
+function smoothPath(P){
+  if(P.length<2) return "";
+  let d=`M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+  for(let i=0;i<P.length-1;i++){
+    const p0=P[i-1]||P[i],p1=P[i],p2=P[i+1],p3=P[i+2]||P[i+1];
+    const c1x=p1[0]+(p2[0]-p0[0])/6,c1y=p1[1]+(p2[1]-p0[1])/6;
+    const c2x=p2[0]-(p3[0]-p1[0])/6,c2y=p2[1]-(p3[1]-p1[1])/6;
+    d+=`C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+
+function chart(samples){
+  // Малюємо soil_raw (чесніший за відсоток до калібрування); якщо його нема —
+  // падаємо на soil (%). X — реальний час за годину, спільно з рештою.
+  const useRaw = samples.some(s=>s.soil_raw!=null);
+  const pts = samples.map(s=>({t:Date.parse(s.ts), v: useRaw ? s.soil_raw : s.soil}))
+                     .filter(p=>p.v!=null && !isNaN(p.t));
+  if(pts.length<2) return {svg:'<div class="empty">точок замало для графіка</div>', axis:'', yax:'', unit:''};
+  const xMin=srvNow()-HIST_MIN*60000, xMax=srvNow();
+  let lo=Infinity,hi=-Infinity; for(const p of pts){ lo=Math.min(lo,p.v); hi=Math.max(hi,p.v); }
+  const span=Math.max(hi-lo, useRaw?10:1), pad=span*0.15, yMin=lo-pad, yMax=hi+pad;
+  const W=1000,H=120,py=12;
+  const X=t=>((t-xMin)/(xMax-xMin||1))*W, Y=v=>H-py-((v-yMin)/(yMax-yMin||1))*(H-2*py);
+  const cs=getComputedStyle(document.documentElement);
+  const col=cs.getPropertyValue('--c1').trim(), lc=cs.getPropertyValue('--line').trim();
+  const ticks=[]; for(let i=0;i<4;i++){ const v=yMin+(yMax-yMin)*i/3; ticks.push({v,y:Y(v)}); }
+  const grid=ticks.map(t=>`<line x1="0" y1="${t.y.toFixed(1)}" x2="${W}" y2="${t.y.toFixed(1)}" stroke="${lc}" stroke-width="1" stroke-opacity=".55"/>`).join('');
+  const path=smoothPath(pts.map(p=>[X(p.t),Y(p.v)]));
+  const dots=pts.length<=80 ? pts.map(p=>`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.2" fill="${col}"/>`).join('') : '';
+  const svg=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}<path d="${path}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
+  const d=useRaw?0:1;
+  const yax=ticks.map(t=>`<span style="top:${t.y.toFixed(1)}px">${fmt(t.v,d)}</span>`).join('');
+  const tt=ms=>new Date(ms).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
+  let axis=''; for(let i=0;i<=6;i++){ const ms=xMin+(xMax-xMin)*i/6; axis+=`<span>${i===6?tt(ms)+' (зараз)':tt(ms)}</span>`; }
+  return { svg, axis, yax, unit: useRaw?'ADC':'%' };
+}
+
+function nodeCard(n, live){
+  const last = live && live.samples.length ? live.samples[live.samples.length-1] : null;
+  const stale = n.stale;
+  const state = stale ? {cls:'bad', txt:'мовчить'} : {cls:'ok', txt:'на зв’язку'};
+  const raw = last ? last.soil_raw : null, pct = last ? last.soil : null;
+  const big = raw!=null ? raw : pct;
+  const unit = raw!=null ? 'ADC' : '%';
+  const c = live ? chart(live.samples) : null;
+  return `<div class="card ${stale?'stale':''}">
+    <div class="top">
+      <div><div class="nm">${n.label||n.node_id}</div><div class="id">${n.node_id}</div></div>
+      <div class="state"><span class="badge ${state.cls}">${state.txt}</span><div style="margin-top:4px">${ago(n.last_seen)}</div></div>
+    </div>
+    <div class="big"><span class="v num">${fmt(big, unit==='%'?1:0)}</span><span class="u">${unit} · ${raw!=null?'сире ADC ґрунту':'вологість'}</span></div>
+    <div class="sub">${last&&last.air_t!=null?`повітря ${fmt(last.air_t,1)} °C · ${fmt(last.air_h)} %`:'повітря —'}</div>
+    <div class="meta">
+      ${last&&last.vbat!=null?`<span class="pill ${last.vbat<3.4?'bad':''}">${fmt(last.vbat,2)} В</span>`:''}
+      ${last&&last.rssi!=null?`<span class="pill">RSSI ${last.rssi} · SNR ${fmt(last.snr,1)}</span>`:''}
+      ${last&&last.soil!=null?`<span class="pill">${fmt(last.soil)} %</span>`:''}
+      ${last&&last.soil_raw!=null&&raw!=null?`<span class="pill">raw ${last.soil_raw}</span>`:''}
+    </div>
+    ${c ? `<div class="plot"><div class="yaxis">${c.yax}</div>${c.svg}</div><div class="axis">${c.axis}</div>` : ''}
+  </div>`;
+}
+
+async function refresh(){
+  try{
+    const nodes = await api("/api/nodes");
+    if(!nodes.length){ $("#cards").innerHTML='<div class="empty">Жоден вузол ще не надсилав даних у хмару.</div>'; setConn(true,"порожньо"); return; }
+    const live = await Promise.all(nodes.map(n=>api(`/api/nodes/live?node=${encodeURIComponent(n.node_id)}&n=400`).catch(()=>null)));
+    $("#cards").innerHTML = nodes.map((n,i)=>nodeCard(n, live[i])).join("");
+    const alive = nodes.filter(n=>!n.stale).length;
+    setConn(true, `${alive}/${nodes.length} на зв'язку · ${new Date().toLocaleTimeString("uk")}`);
+    $("#banner").style.display="none";
+  }catch(e){
+    setConn(false,"нема зв'язку");
+    $("#banner").textContent="Не вдалось отримати дані: "+e.message; $("#banner").style.display="block";
+  }
+}
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>

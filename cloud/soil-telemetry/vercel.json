@@ -1,4 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": { "main.py": { "maxDuration": 15, "includeFiles": "schema.sql" } }
+  "functions": {
+    "main.py": {
+      "maxDuration": 15,
+      "includeFiles": "schema.sql"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/nodes",
+      "destination": "/nodes.html"
+    }
+  ]
 }

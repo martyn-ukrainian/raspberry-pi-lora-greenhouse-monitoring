@@ -17,6 +17,7 @@ vercel.json-магії. Сховище — Postgres (Neon), DATABASE_URL у зм
 from __future__ import annotations
 
 import csv
+import json
 import io
 import os
 import statistics
@@ -32,10 +33,12 @@ app = FastAPI(title="agro soil telemetry", docs_url="/api/docs", openapi_url="/a
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
+NODES_TOKEN = os.environ.get("NODES_TOKEN", "")
 
 # Скільки секунд без пачок означає «плата мовчить». Пачка раз на 30 с плюс
 # переконнект — 90 с дає два пропущені вікна, не більше.
 STALE_AFTER_S = 90
+NODE_STALE_S = 240   # вузол шле рідше; forwarder ~15 с + LoRa
 SIGMA_WINDOW_S = 60
 
 
@@ -108,6 +111,128 @@ def require_token(authorization: Annotated[str | None, Header()] = None) -> None
 
 
 Auth = Depends(require_token)
+
+
+def require_nodes_token(authorization: Annotated[str | None, Header()] = None) -> None:
+    """Токен для запису вузлових вимірів (forwarder на PI). Порожній = не
+    перевіряти (лише локально)."""
+    if not NODES_TOKEN:
+        return
+    if authorization != f"Bearer {NODES_TOKEN}":
+        raise HTTPException(401, "чужий токен")
+
+
+NodesAuth = Depends(require_nodes_token)
+
+
+class NodeRow(BaseModel):
+    source_id: int
+    node_id: str
+    air_t: float | None = None
+    air_h: float | None = None
+    soil: float | None = None
+    soil_raw: int | None = None
+    rssi: int | None = None
+    snr: float | None = None
+    vbat: float | None = None
+    uptime: int | None = None
+    ts: datetime
+
+
+class NodeBatch(BaseModel):
+    rows: list[NodeRow] = Field(max_length=2000)
+    labels: dict | None = None   # {node_id: {label, thresholds}}, опційно
+
+
+@app.post("/api/nodes/ingest", dependencies=[NodesAuth])
+def nodes_ingest(batch: NodeBatch) -> dict:
+    if not batch.rows and not batch.labels:
+        return {"ok": True, "written": 0}
+    with db() as conn, conn.cursor() as cur:
+        written = 0
+        for r in batch.rows:
+            cur.execute(
+                """
+                INSERT INTO node_measurements
+                    (source_id, node_id, air_t, air_h, soil, soil_raw, rssi, snr, vbat, uptime, ts)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (source_id) DO NOTHING
+                """,
+                (r.source_id, r.node_id, r.air_t, r.air_h, r.soil, r.soil_raw,
+                 r.rssi, r.snr, r.vbat, r.uptime, r.ts),
+            )
+            written += cur.rowcount
+        if batch.labels:
+            for node_id, meta in batch.labels.items():
+                cur.execute(
+                    """
+                    INSERT INTO node_labels (node_id, label, thresholds, updated_at)
+                    VALUES (%s, %s, %s, now())
+                    ON CONFLICT (node_id) DO UPDATE
+                      SET label = EXCLUDED.label, thresholds = EXCLUDED.thresholds, updated_at = now()
+                    """,
+                    (node_id, meta.get("label"), json.dumps(meta.get("thresholds"))),
+                )
+        conn.commit()
+    return {"ok": True, "written": written}
+
+
+@app.get("/api/nodes")
+def nodes_list() -> list[dict]:
+    now = datetime.now(timezone.utc)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT m.node_id, max(m.ts) AS last_ts, l.label, l.thresholds
+            FROM node_measurements m
+            LEFT JOIN node_labels l ON l.node_id = m.node_id
+            GROUP BY m.node_id, l.label, l.thresholds
+            ORDER BY last_ts DESC
+            """
+        )
+        rows = cur.fetchall()
+    out = []
+    for node_id, last_ts, label, thresholds in rows:
+        out.append({
+            "node_id": node_id, "label": label, "thresholds": thresholds,
+            "last_seen": last_ts.isoformat(),
+            "stale": (now - last_ts).total_seconds() > NODE_STALE_S,
+        })
+    return out
+
+
+@app.get("/api/nodes/live")
+def nodes_live(node: str, n: int = Query(300, ge=1, le=5000)) -> dict:
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT label, thresholds FROM node_labels WHERE node_id = %s", (node,))
+        meta = cur.fetchone()
+        cur.execute(
+            """
+            SELECT ts, node_id, air_t, air_h, soil, soil_raw, rssi, snr, vbat, uptime
+            FROM node_measurements WHERE node_id = %s
+            ORDER BY ts DESC LIMIT %s
+            """,
+            (node, n),
+        )
+        rows = list(reversed(cur.fetchall()))
+    if not rows:
+        raise HTTPException(404, "невідомий вузол")
+    now = datetime.now(timezone.utc)
+    samples = [
+        {"ts": r[0].isoformat(), "air_t": r[2], "air_h": r[3], "soil": r[4],
+         "soil_raw": r[5], "rssi": r[6], "snr": r[7], "vbat": r[8], "uptime": r[9]}
+        for r in rows
+    ]
+    last_ts = rows[-1][0]
+    return {
+        "node": node,
+        "label": meta[0] if meta else None,
+        "thresholds": meta[1] if meta else None,
+        "last_seen": last_ts.isoformat(),
+        "stale": (now - last_ts).total_seconds() > NODE_STALE_S,
+        "samples": samples,
+    }
+
 
 
 # --------------------------------------------------------------------------

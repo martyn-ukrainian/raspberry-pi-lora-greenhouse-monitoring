@@ -66,3 +66,29 @@ CREATE TABLE IF NOT EXISTS pours (
 
 CREATE INDEX IF NOT EXISTS pours_pending_idx
     ON pours (device, created_at) WHERE delivered_at IS NULL;
+
+
+-- ── Моніторинг бойових вузлів (міст із PI: forwarder штовхає сюди рядки
+--    measurement із agro.db; Vercel читає для сторінки /nodes) ──────────────
+CREATE TABLE IF NOT EXISTS node_measurements (
+    source_id   bigint PRIMARY KEY,      -- measurement.id з PI: дедуплікація
+    node_id     text NOT NULL,
+    air_t       real,
+    air_h       real,
+    soil        real,
+    soil_raw    integer,
+    rssi        integer,
+    snr         real,
+    vbat        real,
+    uptime      integer,
+    ts          timestamptz NOT NULL,    -- measurement.timestamp (UTC)
+    ingested_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS node_meas_node_ts_idx ON node_measurements (node_id, ts);
+
+CREATE TABLE IF NOT EXISTS node_labels (
+    node_id    text PRIMARY KEY,
+    label      text,
+    thresholds jsonb,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
