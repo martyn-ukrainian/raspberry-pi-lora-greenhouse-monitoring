@@ -68,10 +68,12 @@ class SensorStats(BaseModel):
 class AggregateBucket(BaseModel):
     bucket: datetime
     count: int
-    air_temperature: SensorStats
-    air_humidity: SensorStats
-    soil_moisture: SensorStats
-    # None, коли жоден запис у бакеті не має сирого ADC (старі дані / USB-вузол).
+    # Усі — None, коли в бакеті жоден запис не має цього сенсора (напр. вузол
+    # прислав пакет без температури). Раніше такий бакет валив увесь запит
+    # ValidationError'ом, бо SensorStats вимагав float.
+    air_temperature: SensorStats | None = None
+    air_humidity: SensorStats | None = None
+    soil_moisture: SensorStats | None = None
     soil_raw: SensorStats | None = None
 
     @field_serializer("bucket")
@@ -219,24 +221,20 @@ def read_aggregate(
         bucket_minutes,
     )
 
+    def stats(row: dict, lo: str, hi: str, av: str) -> SensorStats | None:
+        # avg NULL означає, що в бакеті не було жодного не-NULL значення сенсора.
+        return None if row[av] is None else SensorStats(
+            min=row[lo], max=row[hi], avg=row[av]
+        )
+
     return [
         AggregateBucket(
             bucket=row["bucket"],
             count=row["count"],
-            air_temperature=SensorStats(
-                min=row["t_min"], max=row["t_max"], avg=row["t_avg"]
-            ),
-            air_humidity=SensorStats(
-                min=row["h_min"], max=row["h_max"], avg=row["h_avg"]
-            ),
-            soil_moisture=SensorStats(
-                min=row["m_min"], max=row["m_max"], avg=row["m_avg"]
-            ),
-            soil_raw=(
-                SensorStats(min=row["r_min"], max=row["r_max"], avg=row["r_avg"])
-                if row["r_avg"] is not None
-                else None
-            ),
+            air_temperature=stats(row, "t_min", "t_max", "t_avg"),
+            air_humidity=stats(row, "h_min", "h_max", "h_avg"),
+            soil_moisture=stats(row, "m_min", "m_max", "m_avg"),
+            soil_raw=stats(row, "r_min", "r_max", "r_avg"),
         )
         for row in rows
     ]
