@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from alerts import router as alerts_router
@@ -35,6 +36,13 @@ app.include_router(events_router)
 # Каталог static/ містить один self-contained index.html без зовнішніх
 # ресурсів (PI може бути без інтернету).
 app.mount("/live", StaticFiles(directory="static", html=True), name="live")
+
+
+# Порівняння вузлів етапу 3 (опорний проти сну) — окрема сторінка того самого
+# сервера, читає лише /measurements/aggregate і /measurements/latest.
+@app.get("/stage3")
+def stage3_page() -> FileResponse:
+    return FileResponse("static/stage3.html")
 
 
 @app.get("/")

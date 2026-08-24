@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Етап 3 · опорний проти сну</title>
+<style>
+  /* Self-contained, без CDN (PI може бути офлайн). */
+  :root{
+    --bg:#f4f5f2; --panel:#fff; --panel2:#f7f8f5; --fg:#1a1e17; --mut:#646a5c; --line:#e2e4dc;
+    --ref:#2d7fc4; --ref-bg:#e6f0f8; --low:#c9772a; --low-bg:#f6ecdd;
+    --ok:#2f7d3a; --bad:#b23b2c; --acc:#3f7a34;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#12140f; --panel:#1b1e17; --panel2:#171a13; --fg:#ecefe4; --mut:#9aa08e; --line:#2b2f24;
+    --ref:#5fa8e6; --ref-bg:#1a2836; --low:#e6a15f; --low-bg:#33280f;
+    --ok:#9ed58f; --bad:#f0a496; --acc:#8cbf66;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .num{font-variant-numeric:tabular-nums}
+  header{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:650}
+  header h1 small{color:var(--mut);font-weight:400}
+  .conn{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap;color:var(--mut);font-size:12.5px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--mut)}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
+  main{padding:20px;max-width:1200px;margin:0 auto}
+  .banner{display:none;margin-bottom:16px;padding:11px 14px;border-radius:10px;background:var(--low-bg);color:var(--fg);border:1px solid var(--line)}
+  .intro{color:var(--mut);font-size:13.5px;margin:0 0 18px;max-width:820px}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px}
+  @media(min-width:900px){.grid{grid-template-columns:1fr 1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .card.ref{border-top:3px solid var(--ref)} .card.low{border-top:3px solid var(--low)}
+  .card h2{font-size:16px;margin:0 0 2px;display:flex;align-items:center;gap:9px}
+  .tag{font-size:11px;padding:2px 9px;border-radius:20px;font-weight:600}
+  .tag.ref{background:var(--ref-bg);color:var(--ref)} .tag.low{background:var(--low-bg);color:var(--low)}
+  .card .id{color:var(--mut);font-size:12.5px;margin-bottom:14px}
+  .id input{font:inherit;font-size:12.5px;width:150px;padding:3px 7px;border:1px solid var(--line);border-radius:6px;background:var(--panel2);color:var(--fg)}
+  .big{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+  .big .v{font-size:44px;font-weight:650;line-height:1} .big .u{color:var(--mut);font-size:15px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;margin-bottom:12px}
+  .stats .k{color:var(--mut);font-size:11.5px} .stats .s{font-size:19px;font-weight:600}
+  .meta{display:flex;gap:10px 16px;flex-wrap:wrap;color:var(--mut);font-size:12.5px;border-top:1px solid var(--line);padding-top:10px}
+  .pill{padding:2px 8px;border-radius:20px;background:var(--panel2)}
+  .pill.warn{background:var(--low-bg);color:var(--low)}
+  .diff{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .diff h3{margin:0 0 12px;font-size:15px}
+  .dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+  .d .k{color:var(--mut);font-size:12px} .d .v{font-size:26px;font-weight:650}
+  .d .v small{font-size:13px;color:var(--mut);font-weight:400}
+  .empty{color:var(--mut);font-size:13px}
+  .controls{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;color:var(--mut);font-size:13px}
+  .controls select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--fg)}
+  .metric-toggle button{font:inherit;font-size:12.5px;padding:5px 11px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
+  .metric-toggle button:first-child{border-radius:7px 0 0 7px} .metric-toggle button:last-child{border-radius:0 7px 7px 0;border-left:0}
+  .metric-toggle button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Етап 3 · <small>опорний проти сну</small></h1>
+  <div class="conn"><span id="dot" class="dot"></span><span id="connTxt">—</span></div>
+</header>
+
+<main>
+  <div id="banner" class="banner"></div>
+  <p class="intro">Два вузли міряють <b>той самий ґрунт</b>. Опорний шле безперервно; той, що зі сном,
+  прокидається раз на кілька хвилин, віддає пачку замірів і засинає. Питання етапу — чи однаково вони
+  міряють. Для кожного беремо ґрунт за вікно й зводимо в <b>середнє / мін / макс</b>; у сплячого це
+  природно виходить усередненням по його останній передачі, бо решту часу даних просто нема.</p>
+
+  <div class="controls">
+    <span>Вікно:</span>
+    <select id="win">
+      <option value="5">5 хв</option>
+      <option value="10">10 хв</option>
+      <option value="15">15 хв</option>
+      <option value="30">30 хв</option>
+    </select>
+    <span>Показник:</span>
+    <span class="metric-toggle" id="metric">
+      <button data-m="raw" class="on">сире ADC</button>
+      <button data-m="pct">відсоток</button>
+    </span>
+    <span id="metricNote" style="color:var(--mut)"></span>
+  </div>
+
+  <div class="grid">
+    <div class="card ref" id="cardRef"></div>
+    <div class="card low" id="cardLow"></div>
+  </div>
+
+  <div class="diff">
+    <h3>Різниця <span id="diffMetric" class="num" style="color:var(--mut);font-weight:400;font-size:13px"></span></h3>
+    <div id="diffBody" class="dgrid"><div class="empty">чекаю дані обох вузлів…</div></div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const POLL_MS = 15000;         // сплячий міняється рідко — часте опитування ні до чого
+
+// Ідентифікатори вузлів етапу 3. Правляться в шапці картки й лишаються в браузері,
+// бо остаточні імена в конфігу сервера можуть відрізнятись.
+function nid(key, def){ try { return localStorage.getItem(key) || def; } catch { return def; } }
+let REF = nid("stage3_ref", "stage3-reference");
+let LOW = nid("stage3_low", "stage3-lowpower");
+let METRIC = nid("stage3_metric", "raw");        // raw | pct
+let WIN = parseInt(nid("stage3_win", "5"), 10);
+
+const BASE = location.protocol.startsWith("http") ? location.origin
+  : (nid("agro_base", "http://agro-pi.local:8008"));
+
+async function api(path){
+  const r = await fetch(BASE + path, { cache: "no-store" });
+  if (!r.ok) throw new Error(path + " → " + r.status);
+  return r.json();
+}
+function setConn(ok, t){ $("#dot").className = "dot " + (ok?"on":"off"); $("#connTxt").textContent = t; }
+function ago(iso){ const s=Math.max(0,(Date.now()-Date.parse(iso))/1000); if(isNaN(s))return "—";
+  return s<90?Math.round(s)+" с тому":s<5400?Math.round(s/60)+" хв тому":s<172800?(s/3600).toFixed(1)+" год тому":Math.round(s/86400)+" дн тому"; }
+function fmt(v,d=0){ return v==null||isNaN(v)?"—":Number(v).toFixed(d); }
+
+// Поле показника в бакеті aggregate: сире ADC або відсоток.
+function field(){ return METRIC==="raw" ? "soil_raw" : "soil_moisture"; }
+function unit(){ return METRIC==="raw" ? "" : " %"; }
+function dec(){ return METRIC==="raw" ? 0 : 1; }
+
+// Зводимо всі бакети вікна в один: count-зважене середнє, спільні мін/макс.
+// Для сплячого вікно здебільшого порожнє, тож у підсумок ідуть лише ті бакети,
+// де він реально передавав — саме "дані які він передав", як і хотіли.
+function merge(buckets){
+  let n=0, mn=Infinity, mx=-Infinity, wsum=0, present=0;
+  for(const b of buckets){
+    const s = b[field()];
+    if(!b.count || !s || s.avg==null) continue;   // раку нема (старі/USB) → пропуск
+    n += b.count; wsum += s.avg*b.count;
+    mn = Math.min(mn, s.min); mx = Math.max(mx, s.max); present++;
+  }
+  return n ? { n, avg:wsum/n, min:mn, max:mx, buckets:present } : { n:0 };
+}
+
+async function nodeStats(node){
+  const since = new Date(Date.now() - WIN*60000).toISOString();
+  // Дрібний бакет (1 хв), щоб для сплячого зловити саме хвилини передачі, а не
+  // розмити їх на все вікно; злиття робимо самі.
+  const buckets = await api(`/measurements/aggregate?node_id=${encodeURIComponent(node)}&since=${encodeURIComponent(since)}&bucket_minutes=1`).catch(()=>[]);
+  const st = merge(buckets);
+  const latest = await api(`/measurements/latest?node_id=${encodeURIComponent(node)}`).catch(()=>null);
+  return { st, latest };
+}
+
+function idField(kind, val){
+  return `<input value="${val}" data-kind="${kind}" spellcheck="false" title="node_id вузла">`;
+}
+
+function renderCard(el, kind, node, data){
+  const st = data.st, last = data.latest;
+  const fresh = last && (Date.now()-Date.parse(last.timestamp))/1000;
+  const sleeping = kind==="low";
+  const noWin = !st.n;
+  const staleTxt = last ? ago(last.timestamp) : "нема вимірів";
+  const rawMissing = METRIC==="raw" && last && last.soil_raw==null;
+  el.innerHTML = `
+    <h2><span class="tag ${kind}">${kind==="ref"?"безперервний":"зі сном"}</span></h2>
+    <div class="id">${idField(kind, node)}</div>
+    ${noWin ? `<div class="empty">${rawMissing ? "цей вузол не шле сире ADC (лише відсоток) — перемкни показник"
+        : sleeping ? `у вікні ${WIN} хв передач не було${last?` · остання ${staleTxt}`:""} — спить`
+        : "у вікні даних нема"}</div>`
+      : `
+      <div class="big"><span class="v num">${fmt(st.avg, dec())}</span><span class="u">${METRIC==="raw"?"ADC":"%"} · середнє</span></div>
+      <div class="sub">${st.n} замірів${sleeping?` за ${st.buckets} хв передачі`:` за ${WIN} хв`} · останній ${staleTxt}</div>
+      <div class="stats">
+        <div><div class="k">мін</div><div class="s num">${fmt(st.min, dec())}</div></div>
+        <div><div class="k">макс</div><div class="s num">${fmt(st.max, dec())}</div></div>
+        <div><div class="k">розмах</div><div class="s num">${fmt(st.max-st.min, dec())}</div></div>
+      </div>`}
+    <div class="meta">
+      <span class="pill ${sleeping&&fresh>WIN*60?"warn":""}">${last?ago(last.timestamp):"—"}</span>
+      ${last&&last.vbat!=null?`<span class="pill">${fmt(last.vbat,2)} В</span>`:""}
+      ${last&&last.soil_moisture!=null?`<span class="pill">${fmt(last.soil_moisture)} %</span>`:""}
+      ${last&&last.soil_raw!=null?`<span class="pill">raw ${last.soil_raw}</span>`:""}
+    </div>`;
+  el.querySelector("input").onchange = (e)=>{
+    const v = e.target.value.trim(); const k = e.target.dataset.kind;
+    if(k==="ref"){ REF=v; try{localStorage.setItem("stage3_ref",v)}catch{} }
+    else { LOW=v; try{localStorage.setItem("stage3_low",v)}catch{} }
+    tick();
+  };
+}
+
+function renderDiff(a, b){
+  $("#diffMetric").textContent = "· " + (METRIC==="raw"?"сире ADC":"відсоток") + ", вікно " + WIN + " хв";
+  const body = $("#diffBody");
+  if(!a.st.n || !b.st.n){ body.innerHTML = `<div class="empty">потрібні дані обох вузлів у вікні (опорний: ${a.st.n||0}, сон: ${b.st.n||0} замірів)</div>`; return; }
+  const d = a.st.avg - b.st.avg;
+  const rel = b.st.avg ? (d/b.st.avg*100) : null;
+  const overlap = !(a.st.max < b.st.min || b.st.max < a.st.min);
+  body.innerHTML = `
+    <div class="d"><div class="k">Δ середнього (опорний − сон)</div><div class="v num" style="color:${Math.abs(d)>Math.max(a.st.max-a.st.min,b.st.max-b.st.min)?'var(--bad)':'var(--ok)'}">${d>0?"+":""}${fmt(d,dec())}<small>${unit()}</small></div></div>
+    <div class="d"><div class="k">відносна різниця</div><div class="v num">${rel==null?"—":(rel>0?"+":"")+fmt(rel,1)}<small> %</small></div></div>
+    <div class="d"><div class="k">опорний</div><div class="v num" style="color:var(--ref)">${fmt(a.st.avg,dec())}<small>${unit()} · ${a.st.n} зам.</small></div></div>
+    <div class="d"><div class="k">зі сном</div><div class="v num" style="color:var(--low)">${fmt(b.st.avg,dec())}<small>${unit()} · ${b.st.n} зам.</small></div></div>
+    <div class="d"><div class="k">діапазони перекриваються?</div><div class="v" style="font-size:19px;color:${overlap?'var(--ok)':'var(--bad)'}">${overlap?"так — згодні":"ні — розходяться"}</div></div>`;
+}
+
+async function tick(){
+  try{
+    const [a, b] = await Promise.all([nodeStats(REF), nodeStats(LOW)]);
+    renderCard($("#cardRef"), "ref", REF, a);
+    renderCard($("#cardLow"), "low", LOW, b);
+    renderDiff(a, b);
+    setConn(true, `оновлено ${new Date().toLocaleTimeString("uk")}`);
+    $("#metricNote").textContent = METRIC==="raw" ? "сире ADC для чесного порівняння сенсорів (формула ще не калібрована)" : "відсоток — через ще не калібровану soilRawToPercent()";
+    $("#banner").style.display="none";
+  }catch(e){
+    setConn(false, "нема зв'язку");
+    const bn=$("#banner"); bn.textContent=`Не вдалось дістати дані з ${BASE}: ${e.message}. Ти в мережі PI? Порт 8008?`; bn.style.display="block";
+  }
+}
+
+$("#win").value = String(WIN);
+$("#win").onchange = (e)=>{ WIN=parseInt(e.target.value,10); try{localStorage.setItem("stage3_win",String(WIN))}catch{}; tick(); };
+for(const btn of $("#metric").querySelectorAll("button")){
+  btn.classList.toggle("on", btn.dataset.m===METRIC);
+  btn.onclick = ()=>{ METRIC=btn.dataset.m; try{localStorage.setItem("stage3_metric",METRIC)}catch{};
+    for(const b of $("#metric").querySelectorAll("button")) b.classList.toggle("on", b.dataset.m===METRIC); tick(); };
+}
+
+tick();
+setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

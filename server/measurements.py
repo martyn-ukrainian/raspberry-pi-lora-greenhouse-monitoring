@@ -67,6 +67,8 @@ class AggregateBucket(BaseModel):
     air_temperature: SensorStats
     air_humidity: SensorStats
     soil_moisture: SensorStats
+    # None, коли жоден запис у бакеті не має сирого ADC (старі дані / USB-вузол).
+    soil_raw: SensorStats | None = None
 
     @field_serializer("bucket")
     def _serialize_bucket(self, v: datetime) -> str:
@@ -126,6 +128,13 @@ class MeasurementRepository:
                     func.min(Measurement.soil_moisture).label("m_min"),
                     func.max(Measurement.soil_moisture).label("m_max"),
                     func.avg(Measurement.soil_moisture).label("m_avg"),
+                    # Сире ADC поруч із відсотком: етап 3 порівнює самі сенсори,
+                    # а формула soilRawToPercent() ще не калібрована, тож для
+                    # порівняння вузлів raw чесніший. avg/min/max ігнорують NULL
+                    # (старі записи й USB-вузли без raw), avg=None якщо всі NULL.
+                    func.min(Measurement.soil_raw).label("r_min"),
+                    func.max(Measurement.soil_raw).label("r_max"),
+                    func.avg(Measurement.soil_raw).label("r_avg"),
                 )
                 .where(Measurement.node_id == node_id)
                 .where(Measurement.timestamp >= since)
@@ -218,6 +227,11 @@ def read_aggregate(
             ),
             soil_moisture=SensorStats(
                 min=row["m_min"], max=row["m_max"], avg=row["m_avg"]
+            ),
+            soil_raw=(
+                SensorStats(min=row["r_min"], max=row["r_max"], avg=row["r_avg"])
+                if row["r_avg"] is not None
+                else None
             ),
         )
         for row in rows
