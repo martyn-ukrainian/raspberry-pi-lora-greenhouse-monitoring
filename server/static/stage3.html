@@ -56,6 +56,14 @@
   .metric-toggle button{font:inherit;font-size:12.5px;padding:5px 11px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
   .metric-toggle button:first-child{border-radius:7px 0 0 7px} .metric-toggle button:last-child{border-radius:0 7px 7px 0;border-left:0}
   .metric-toggle button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+  .charts{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .charts h3{margin:0 0 6px;font-size:15px}
+  .charts .cap{color:var(--mut);font-size:12.5px;margin-bottom:12px}
+  .panel{margin-bottom:6px}
+  .panel .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:2px}
+  .panel .lab b{font-weight:600}
+  .panel svg{width:100%;height:120px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+  .axis{color:var(--mut);font-size:11px;display:flex;justify-content:space-between;margin-top:4px}
 </style>
 </head>
 <body>
@@ -95,6 +103,21 @@
   <div class="diff">
     <h3>Різниця <span id="diffMetric" class="num" style="color:var(--mut);font-weight:400;font-size:13px"></span></h3>
     <div id="diffBody" class="dgrid"><div class="empty">чекаю дані обох вузлів…</div></div>
+  </div>
+
+  <div class="charts">
+    <h3>Динаміка <span id="chartMetric" class="num" style="color:var(--mut);font-weight:400;font-size:13px"></span></h3>
+    <div class="cap">Спільна вісь часу й спільний масштаб — вертикальний зсув між панелями і є різницею.
+      Точка на хвилину (середнє), тонка риска — розкид усередині хвилини.</div>
+    <div class="panel">
+      <div class="lab"><span style="color:var(--ref)"><b>безперервний</b> · stage3-reference</span><span id="rY" class="num"></span></div>
+      <div id="chRef"></div>
+    </div>
+    <div class="panel">
+      <div class="lab"><span style="color:var(--low)"><b>зі сном</b> · stage3-lowpower</span><span id="lY" class="num"></span></div>
+      <div id="chLow"></div>
+    </div>
+    <div id="chAxis" class="axis"></div>
   </div>
 </main>
 
@@ -150,7 +173,7 @@ async function nodeStats(node){
   const buckets = await api(`/measurements/aggregate?node_id=${encodeURIComponent(node)}&since=${encodeURIComponent(since)}&bucket_minutes=1`).catch(()=>[]);
   const st = merge(buckets);
   const latest = await api(`/measurements/latest?node_id=${encodeURIComponent(node)}`).catch(()=>null);
-  return { st, latest };
+  return { st, latest, buckets };
 }
 
 function idField(kind, val){
@@ -207,12 +230,68 @@ function renderDiff(a, b){
     <div class="d"><div class="k">діапазони перекриваються?</div><div class="v" style="font-size:19px;color:${overlap?'var(--ok)':'var(--bad)'}">${overlap?"так — згодні":"ні — розходяться"}</div></div>`;
 }
 
+
+// Два стек-графіки: reference зверху, lowpower знизу, спільні осі X (вікно) і Y
+// (по обох наборах), щоб зсув між сенсорами читався вертикально. Малюємо SVG
+// самі — жодних бібліотек, бо PI може бути без інтернету.
+function points(buckets){
+  const out=[];
+  for(const b of buckets||[]){
+    const s=b[field()];
+    if(!b.count||!s||s.avg==null) continue;
+    out.push({t:Date.parse(b.bucket), avg:s.avg, min:s.min, max:s.max});
+  }
+  return out.sort((a,b)=>a.t-b.t);
+}
+function ghostLine(pts, X, Y, color){
+  if(pts.length<2) return '';
+  return `<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${color}" stroke-width="1.2" stroke-dasharray="3 4" stroke-opacity=".45"/>`;
+}
+function svgPanel(pts, ghost, xMin, xMax, yMin, yMax, color, ghostColor){
+  const W=1000,H=120,pad=12;
+  const X=(t)=>((t-xMin)/(xMax-xMin||1))*W;
+  const Y=(v)=>H-pad-((v-yMin)/(yMax-yMin||1))*(H-2*pad);
+  if(!pts.length) return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${ghostLine(ghost,X,Y,ghostColor)}</svg>`;
+  let spread='', line='', dots='';
+  for(const p of pts){
+    const x=X(p.t).toFixed(1);
+    spread+=`<line x1="${x}" y1="${Y(p.min).toFixed(1)}" x2="${x}" y2="${Y(p.max).toFixed(1)}" stroke="${color}" stroke-opacity=".35" stroke-width="2"/>`;
+    dots+=`<circle cx="${x}" cy="${Y(p.avg).toFixed(1)}" r="2.4" fill="${color}"/>`;
+  }
+  line=`<polyline points="${pts.map(p=>X(p.t).toFixed(1)+','+Y(p.avg).toFixed(1)).join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${ghostLine(ghost,X,Y,ghostColor)}${spread}${line}${dots}</svg>`;
+}
+function renderCharts(aB, bB){
+  const A=points(aB), B=points(bB);
+  const all=[...A,...B];
+  $("#chartMetric").textContent = "· "+(METRIC==="raw"?"сире ADC":"відсоток")+", вікно "+WIN+" хв";
+  if(!all.length){ $("#chRef").innerHTML=$("#chLow").innerHTML='<div class="empty" style="padding:40px 0;text-align:center">даних нема</div>'; $("#chAxis").innerHTML=''; $("#rY").textContent=$("#lY").textContent=''; return; }
+  const xMin=Date.now()-WIN*60000, xMax=Date.now();
+  let lo=Infinity,hi=-Infinity;
+  for(const p of all){ lo=Math.min(lo,p.min); hi=Math.max(hi,p.max); }
+  const span=Math.max(hi-lo, METRIC==="raw"?10:1), pad=span*0.15;
+  const yMin=lo-pad, yMax=hi+pad;
+  const cs=getComputedStyle(document.documentElement);
+  const ref=cs.getPropertyValue('--ref').trim(), low=cs.getPropertyValue('--low').trim();
+  $("#chRef").innerHTML=svgPanel(A,B,xMin,xMax,yMin,yMax,ref,low);
+  $("#chLow").innerHTML=svgPanel(B,A,xMin,xMax,yMin,yMax,low,ref);
+  const d=dec();
+  $("#rY").textContent=`${fmt(yMax,d)} … ${fmt(yMin,d)}`;
+  $("#lY").textContent=`${fmt(yMax,d)} … ${fmt(yMin,d)}`;
+  // мітки часу: початок вікна, середина, кінець
+  const t0=new Date(xMin).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
+  const tm=new Date((xMin+xMax)/2).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
+  const t1=new Date(xMax).toLocaleTimeString("uk",{hour:'2-digit',minute:'2-digit'});
+  $("#chAxis").innerHTML=`<span>${t0}</span><span>${tm}</span><span>${t1} (зараз)</span>`;
+}
+
 async function tick(){
   try{
     const [a, b] = await Promise.all([nodeStats(REF), nodeStats(LOW)]);
     renderCard($("#cardRef"), "ref", REF, a);
     renderCard($("#cardLow"), "low", LOW, b);
     renderDiff(a, b);
+    renderCharts(a.buckets, b.buckets);
     setConn(true, `оновлено ${new Date().toLocaleTimeString("uk")}`);
     $("#metricNote").textContent = METRIC==="raw" ? "сире ADC для чесного порівняння сенсорів (формула ще не калібрована)" : "відсоток — через ще не калібровану soilRawToPercent()";
     $("#banner").style.display="none";
