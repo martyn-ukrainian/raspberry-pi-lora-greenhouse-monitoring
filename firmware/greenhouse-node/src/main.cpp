@@ -294,6 +294,13 @@ void showTelemetry(int soilPercent, float airTemp, float airHum) {
 void loop() {
   SoilReadings soil = readSoilSensors();
   int humSoil = medianOf3(soil.s1, soil.s2, soil.s3);
+
+  // Три входи окремо, а не лише медіана. Медіана саме для того й потрібна, щоб
+  // пережити один відпалий сенсор мовчки — але на столі це шкодить: не видно,
+  // до якого піна щуп узагалі підключений і чи підключений хоч до одного.
+  // Порожній вхід плаває під стелею АЦП, справжній щуп у ґрунті дає 1000-3000.
+  LOG("soil pins: s1=%d s2=%d s3=%d -> median %d\n",
+      soil.s1, soil.s2, soil.s3, humSoil);
   int soilPercent = soilRawToPercent(humSoil);
 
   float airTemp = sht31.readTemperature();
