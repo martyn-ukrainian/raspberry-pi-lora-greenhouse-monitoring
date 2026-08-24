@@ -89,10 +89,21 @@ ADC alongside the percentage**: the percentage is an interpretation whose scale
 is not final yet, while the raw value is the measurement and lets the entire
 history be recomputed without reflashing nodes in the field.
 
-Non-linear calibration is standard practice in soil science, not an invention
-here — Topp's 1980 equation is a cubic polynomial, and modern work finds
-capacitive sensors fit polynomial and exponential models best. Method, numbers
-and sources: [`docs/нелінійна-шкала.md`](./docs/нелінійна-шкала.md),
+This was arrived at from our own measurements, and only checked against the
+literature afterwards — where it turns out to be the recommended practice, not
+an invention here. Topp's 1980 equation is a cubic polynomial; field-calibration
+work describes both *"a two-point model and exponential curve fitting"*, noting
+that **two-point linear is simpler and more practical for the field, while curve
+fitting gives higher accuracy when properly calibrated for the specific soil**.
+The same work is explicit that **the manufacturer's calibration is not enough and
+soil-specific recalibration is needed** — which is what the two days of bucket
+measurements were.
+
+One honest difference: the literature's reference is gravimetric water content
+(weigh and oven-dry); ours is water added. Our scale is therefore **relative** and
+does not claim θ in m³/m³.
+
+Method, numbers and sources: [`docs/нелінійна-шкала.md`](./docs/нелінійна-шкала.md),
 [`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
 
 ## Architecture
