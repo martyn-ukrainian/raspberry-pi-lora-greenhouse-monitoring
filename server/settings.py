@@ -32,7 +32,26 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore" — бо `.env` на Pi спільний для кількох програм, а не лише
+    # для цього класу. `node_forwarder.py` читає звідти NODES_INGEST_URL і
+    # NODES_TOKEN напряму через os.environ, і вимагати, щоб кожен ключ файлу
+    # був оголошений ТУТ, означає зв'язати незалежні програми через модель
+    # однієї з них.
+    #
+    # Куплено дорого: 2026-08-24 о 23:23 ці два ключі додали в .env, і pydantic
+    # (за замовчуванням extra="forbid") почав валити Settings на імпорті. Але
+    # процеси вже працювали зі старим конфігом у пам'яті й нічого не помітили —
+    # сервер помер аж о 09:24 наступного дня, при першому перезапуску, і не
+    # піднявся. 6,5 години телеметрії не записано, причому вузли весь цей час
+    # справно передавали.
+    #
+    # Ціна рішення: помилка в імені справжнього налаштування (SEVER_URL замість
+    # SERVER_URL) тепер не викличе помилки, а тихо візьме дефолт. Це гірше за
+    # гучне падіння — але краще за повну зупинку збору даних через ключ, який
+    # цьому класу взагалі не адресований.
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     database_url: str = "sqlite:///agro.db"
 
