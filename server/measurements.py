@@ -36,6 +36,18 @@ class Measurement(SQLModel, table=True):  # type: ignore[call-arg]
     # Без цього поля кожна зміна калібрування розривала б історію надвоє:
     # дані до і після опинялись би в різних одиницях.
     soil_raw: int | None = Field(default=None)
+    # Скільки мілісекунд від подачі Vext минуло до заміру ґрунту.
+    #
+    # Прошивка `-lowpower` везе це поле з коміту 1359c02, але жоден шар
+    # приймача його не оголошував, тож pydantic мовчки викидав його — рівно
+    # так, як до цього губився `vbat` (див. коментар нижче). Наслідок: вікно
+    # семплювання їздило разом із міткою часу, а в базу лягав лише вимір, і
+    # питання "за скільки сенсор виходить на полицю" лишалось невимірюваним.
+    #
+    # Без цього поля позицію відліку доводиться відновлювати з різниць
+    # timestamp, а вони знімаються на приймальному боці й несуть час ефіру,
+    # а не час заміру.
+    soil_at_ms: int | None = Field(default=None)
     rssi: int | None = Field(default=None)
     snr: float | None = Field(default=None)
     # Живлення вузла. Nullable, бо старі записи його не мають, а прошивка може
@@ -50,6 +62,10 @@ class Measurement(SQLModel, table=True):  # type: ignore[call-arg]
     # неперервність — його головна властивість, і падіння лічильника до нуля
     # має бути видно в даних, а не здогадкою.
     uptime: int | None = Field(default=None)
+    # Лічильник пробуджень із RTC-пам'яті; шле лише `-lowpower`. Переживає
+    # deep sleep, але не повне зняття живлення, тому падіння до нуля означає
+    # саме втрату живлення, а не звичайний цикл.
+    boot: int | None = Field(default=None)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_serializer("timestamp")

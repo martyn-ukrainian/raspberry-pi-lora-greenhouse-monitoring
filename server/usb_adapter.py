@@ -70,6 +70,9 @@ class GatewayPacket(BaseModel):
     soil_moisture: float
     # Сире ADC. Шлють обидві бойові прошивки; None лише від старих збірок.
     soil_raw: int | None = None
+    # Час заміру ґрунту від подачі Vext. Шле лише -lowpower; без цього поля
+    # позицію відліку у вікні відновити нічим.
+    soil_at_ms: int | None = None
     rssi: int
     snr: float
     # vbat шлють обидві прошивки (у greenhouse-node доданий для етапу 3),
@@ -131,10 +134,12 @@ def handle_measurement(client: httpx.Client, packet: GatewayPacket, label: str) 
         "air_humidity": packet.air_humidity,
         "soil_moisture": packet.soil_moisture,
         "soil_raw": packet.soil_raw,
+        "soil_at_ms": packet.soil_at_ms,
         "rssi": packet.rssi,
         "snr": packet.snr,
         "vbat": packet.vbat,
         "uptime": packet.uptime,
+        "boot": packet.boot,
     }
 
     try:
