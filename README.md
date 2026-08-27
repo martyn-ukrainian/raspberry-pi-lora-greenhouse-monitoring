@@ -36,6 +36,11 @@ only come from the sensor.
 | `T±10` warm-up | 0.4 s | **0.1 s** | 4× faster |
 | sensitivity to water | 12.6 mV/mL | 12.1 mV/mL | **the same** |
 
+The `T±10` warm-up was measured on the bench, **without a deep-sleep cycle**.
+In the field the first reading, 87 ms after wake-up, is consistently 22 counts
+low — whether that is the sensor or the ADC after a cold boot, the current data
+cannot separate ([`docs/оптимізація-вікна-семплювання.md`](./docs/оптимізація-вікна-семплювання.md)).
+
 **v2.0 wins, but not for the reason the air-to-soil span suggested.** That span
 is 2.4× wider on v2.0 — and it turned out to be a poor predictor: both versions
 move almost identically per millilitre of water. The real advantage is **≈3×,
@@ -105,6 +110,40 @@ does not claim θ in m³/m³.
 
 Method, numbers and sources: [`docs/нелінійна-шкала.md`](./docs/нелінійна-шкала.md),
 [`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
+
+## Continuous node vs duty-cycled node
+
+Stage 3: two nodes side by side in the same soil. One transmits continuously on
+USB power, the other sleeps for 5 minutes and stays awake 19.5 s. The question is
+what the sleep costs in data.
+
+![Signal against noise](./docs/assets/noise-vs-signal.png)
+
+**Almost nothing.** Real soil moisture moves 1.38 ADC counts over 15 minutes —
+**less than the sensor's own noise** (1.74). The error of a three-sample averaged
+window (p90 = 3.17) sits in the same band. Against a working daily range of 39
+counts, none of it is legible.
+
+The same result from the other direction: take the continuous node's 44,410
+readings and keep only what the duty-cycled node would have seen, and the error
+comes out 5–45× **smaller** than the sensor's own jitter — 1.2 counts against 55,
+0.07 °C against 0.20 °C. The continuous node spends 22× more transmissions
+(1323/h against 59/h) resolving something finer than its own noise floor.
+
+What is expensive is not the sleep but the **first reading after waking**: it
+sits 22 counts low, consistently, in 442 bursts out of 442 — as much as the soil
+moves in four hours.
+
+![Before and after](./docs/assets/window-before-after.png)
+
+Hence the optimisation: drop the first reading, keep three instead of seven, and
+the `Vext` window falls from 19.5 s to 9.5 s while airtime drops from 2.0% to
+0.86% — inside the ETSI limit for the first time. The actual battery saving is
+**not measured**: `vbat` reports voltage, not current, and an honest figure needs
+a current sensor we do not have.
+
+Method, tables and the limits of the conclusions:
+[`docs/оптимізація-вікна-семплювання.md`](./docs/оптимізація-вікна-семплювання.md).
 
 ## Architecture
 
