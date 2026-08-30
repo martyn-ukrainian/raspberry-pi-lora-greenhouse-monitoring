@@ -81,6 +81,11 @@ const int SOIL_PINS[3] = {SOIL_1, SOIL_2, SOIL_3};
 #define VBAT_ADC   1
 #define VBAT_CTRL  37
 
+// Білий світлодіод на платі. Прошивка його не запалює ніколи, але перед сном
+// пін усе одно треба покласти в нуль: після скидання він входить у сон у тому
+// стані, в якому його лишив попередній власник шини.
+#define LED_PIN    35
+
 // Коефіцієнт дільника VBAT. Номінал для V3 — 4.9; звірити мультиметром на
 // реальній платі (див. README, розділ "Калібрування VBAT").
 #define VBAT_DIVIDER 4.9f
@@ -236,7 +241,9 @@ const int SOIL_PINS[3] = {SOIL_1, SOIL_2, SOIL_3};
                               // обрив або КЗ ґрунтового сенсора
 #define EV_VBAT_LOW       10
 #define EV_VBAT_CRITICAL  11
-// 12-15 вільні — код займає 4 біти в записі кільця
+#define EV_RADIO_SLEEP_FAIL 12  // radio.sleep() повернув помилку: чип лишився
+                                // в standby (сотні мкА проти одиниць)
+// 13-15 вільні — код займає 4 біти в записі кільця
 
 #define EVENT_RING_SIZE 24
 #define RTC_LOG_MAGIC   0x41475230UL  // "AGR0"
@@ -309,6 +316,11 @@ void logResetReason() {
       break;  // POWERON / DEEPSLEEP / SW — рутина, не подія
   }
 }
+
+// Чи піднялось радіо в цьому циклі. Потрібне рівно для того, щоб не писати
+// EV_RADIO_SLEEP_FAIL на шляху, де radio.begin() вже провалився: там збій сну
+// не новина, а наслідок, і в телеметрії він лише дублював би EV_LORA_INIT_FAIL.
+bool radioReady = false;
 
 SSD1306Wire display(0x3c, OLED_SDA, OLED_SCL);
 SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
@@ -719,12 +731,63 @@ void showTelemetry(int soilPercent, bool airOk, float airTemp, float airHum,
   display.displayOff();
 }
 
+// Відпустити всі піни, якими прошивка користувалась, перш ніж лягати спати.
+//
+// Заміряно 30.08.2026 (`docs/струм-сну.md`): без цього вузол у deep sleep їв
+// 0,84-0,94 мА, з цим — 0,01 мА. У вісімдесят разів, і це найдорожча правка в
+// усьому проєкті на одиницю зусиль.
+//
+// Механізм: пін, який лишився виходом, продовжує тримати рівень на вході вже
+// сплячої мікросхеми — SX1262 і SSD1306 живляться через власні захисні діоди
+// й вхідні каскади. ESP32 при цьому спить чесно, тече не він.
+//
+// `VEXT_CTRL` у списку свідомо НЕМА: його треба лишити виходом у стані HIGH,
+// інакше затвор MOSFET-а спливе і живлення периферії може повернутись саме
+// тоді, коли ми його щойно зняли. GPIO36 не належить до RTC-домену, тож
+// тримати рівень уві сні він і так не буде — але відпускати його самим,
+// раніше за сон, тим більше не варто.
+//
+// Порядок пінів і сам прийом — з ropg/heltec_esp32_lora_v3, функція
+// heltec_deep_sleep(). Бібліотека заявляє 24 мкА на цій платі.
+void releasePinsForSleep() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  // VBAT_CTRL у списку НЕМА свідомо, хоч у ropg він є. readBatteryVolts()
+  // наприкінці явно кладе його в LOW — це вимкнений дільник. Відпустити пін
+  // означало б лишити затвор спливати: вимкненим він, найімовірніше, і
+  // лишиться, але «найімовірніше» тут нічого не виграє. Ціна помилки — 8 мкА
+  // на дільнику 390k/100k, тобто на тлі заміряних 10 мкА сну це не дрібниця.
+  const int idlePins[] = {VBAT_ADC, LED_PIN,
+                          LORA_DIO1, LORA_RST, LORA_BUSY, LORA_NSS,
+                          LORA_MISO, LORA_MOSI, LORA_SCK,
+                          OLED_SDA, OLED_SCL, OLED_RST,
+                          AIR_SDA, AIR_SCL,
+                          SOIL_1, SOIL_2, SOIL_3};
+  for (unsigned i = 0; i < sizeof(idlePins) / sizeof(idlePins[0]); i++) {
+    pinMode(idlePins[i], INPUT);
+  }
+}
+
 void enterDeepSleep() {
-  // Порядок важливий: спершу приспати радіо, потім зняти Vext. SX1262 у
-  // standby їсть ~1,5 мА — це в 30 разів більше за сплячий ESP32, тобто без
-  // цього рядка весь сенс прошивки зникає.
-  radio.sleep();
+  // Порядок важливий: спершу приспати радіо, потім зняти Vext, і аж потім
+  // відпускати піни — розбір має йти після того, як усе вимкнено.
+  //
+  // sleep(false) — це ХОЛОДНИЙ сон SX1262: конфігурація не зберігається, чип
+  // іде в 160 нА замість 0,6-1,2 мкА теплого. Втрата конфігурації нам нічого
+  // не коштує, бо deep sleep — холодний старт усієї плати, і радіо все одно
+  // піднімається заново кожного циклу.
+  //
+  // Код повернення більше не відкидається. Якщо чип був зайнятий і команда не
+  // пройшла, він лишається в standby — сотні мікроампер замість одиниць, тобто
+  // мовчазна втрата половини ресурсу батареї. Тепер це приїде в телеметрії.
+  int radioSleepState = radio.sleep(false);
+  if (radioSleepState != RADIOLIB_ERR_NONE && radioReady) {
+    LOG("radio.sleep failed, code %d\n", radioSleepState);
+    logEvent(EV_RADIO_SLEEP_FAIL);
+  }
   powerOffVext();
+  releasePinsForSleep();
 
   // ЦИКЛ, а не сон: віднімаємо час, який плата вже пропрацювала.
   //
@@ -810,6 +873,7 @@ void setup() {
 
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
   int radioState = radio.begin(868.0);
+  radioReady = (radioState == RADIOLIB_ERR_NONE);
   if (radioState != RADIOLIB_ERR_NONE) {
     // Радіо не піднялось — не крутимось з увімкненим живленням, а йдемо
     // спати до наступного циклу: інакше один збій з'їдає всю батарею.
