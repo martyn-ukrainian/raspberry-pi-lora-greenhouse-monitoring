@@ -145,6 +145,45 @@ a current sensor we do not have.
 Method, tables and the limits of the conclusions:
 [`docs/оптимізація-вікна-семплювання.md`](./docs/оптимізація-вікна-семплювання.md).
 
+## The sleep-current leak: 0.84 mA instead of 0.135
+
+The node drew **0.94 mA** in deep sleep — seven times the calculated figure, and
+a floor no amount of firmware optimisation could get under. Bisecting by build
+showed that a firmware containing **nothing** but `esp_deep_sleep_start()` still
+drew 0.84 mA: the leak was not in what the node does, but in how it goes to
+sleep. The cause was peripheral pins left as outputs, feeding the inputs of an
+already-sleeping SX1262 and SSD1306.
+
+With all fifteen switched to `INPUT` and the radio put into cold sleep, the
+meter read **0.01 mA** — the bottom significant digit of its range, so at least
+84× lower. The recipe comes from [ropg/heltec_esp32_lora_v3](https://github.com/ropg/heltec_esp32_lora_v3),
+which claims 24 µA on this same board with timer-only wakeup; the Heltec
+community [reports 130–135 µA](http://community.heltec.cn/t/heltec-lora-32-v3-deep-sleep-current/18332)
+as the usual result.
+
+Each step is a separate firmware differing from its neighbour by exactly one
+added block, with the meter left in the battery's negative lead throughout:
+
+| step | current | what changed |
+|---|---:|---|
+| `step_a_sleep` — `esp_deep_sleep_start()` and nothing else | 0.84 mA | radio never put to sleep |
+| `step_b_radio` — plus a normal `radio.sleep()` | 0.70 mA | radio: **−0.14** |
+| `step_e_ropg` — plus every pin set to `INPUT` | **0.01 mA** | pins: **−0.69** |
+| production firmware (control) | 0.94 mA | pins from the I2C buses and display too |
+
+The pins cost five times what the radio did. The last row fits the same picture
+exactly: the production firmware drew more than the bare step A precisely
+because it brings up two more I2C buses and the display — leaving more pins as
+outputs.
+
+What this changes: sleep is no longer the ceiling. The cycle budget is now
+almost entirely the sampling window (39.5 mA awake against 0.01 mA asleep, an
+exchange rate of 1:4000), and on a 15-minute cycle the projected life goes from
+73 days to ~137 — or to nine months once the shortened window lands too.
+
+Measurement firmware and the bisection protocol: [`firmware/power-bisect`](./firmware/power-bisect),
+the write-up is in [`docs/струм-сну.md`](./docs/струм-сну.md).
+
 ## Architecture
 
 Each greenhouse is an autonomous node built on a **Heltec WiFi LoRa 32 V3** (ESP32-S3 with SX1262). Each node carries an **SHT31** for air temperature and humidity, plus a **v1.2 capacitive soil-moisture sensor**. Readings are transmitted over **868 MHz LoRa**. A gateway node in the seedling greenhouse aggregates all traffic and forwards it via USB to a **Raspberry Pi 5**. The Pi runs a **Python + FastAPI** backend backed by **SQLite (via SQLModel)**, applies threshold logic, and sends notifications through a **Telegram bot**.
