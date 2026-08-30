@@ -166,10 +166,10 @@ added block, with the meter left in the battery's negative lead throughout:
 
 | step | current | what changed |
 |---|---:|---|
-| `step_a_sleep` — `esp_deep_sleep_start()` and nothing else | 0.84 mA | radio never put to sleep |
-| `step_b_radio` — plus a normal `radio.sleep()` | 0.70 mA | radio: **−0.14** |
-| `step_e_ropg` — plus every pin set to `INPUT` | **0.01 mA** | pins: **−0.69** |
-| production firmware (control) | 0.94 mA | pins from the I2C buses and display too |
+| `step_a_sleep` — deep sleep, nothing else | 0.84&nbsp;mA | radio never put to sleep |
+| `step_b_radio` — plus a normal `radio.sleep()` | 0.70&nbsp;mA | radio: **−0.14** |
+| `step_e_ropg` — plus every pin set to `INPUT` | **0.01&nbsp;mA** | pins: **−0.69** |
+| production firmware (control) | 0.94&nbsp;mA | I2C buses and display too |
 
 The pins cost five times what the radio did. The last row fits the same picture
 exactly: the production firmware drew more than the bare step A precisely
