@@ -33,3 +33,10 @@ services:
     volumes:
       - ./node_sensor:/project
     entrypoint: ["pio"]
+
+  power-bisect:
+    build: .
+    image: agro-firmware
+    volumes:
+      - ./power-bisect:/project
+    entrypoint: ["pio"]
