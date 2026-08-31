@@ -20,6 +20,13 @@ services:
       - ./greenhouse-node-lowpower:/project
     entrypoint: ["pio"]
 
+  greenhouse-node-v2:
+    build: .
+    image: agro-firmware
+    volumes:
+      - ./greenhouse-node-v2:/project
+    entrypoint: ["pio"]
+
   soil-calibration:
     build: .
     image: agro-firmware

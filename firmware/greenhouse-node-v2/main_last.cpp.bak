@@ -1,0 +1,584 @@
+// greenhouse-node-v2 — вузол теплиці з коротким вікном неспання.
+//
+// Відмінність від `greenhouse-node-lowpower` рівно одна, і вона не в логіці, а
+// в тому, ЯК вузол чекає.
+//
+//   було:  зміряв -> передав (0,86 с) -> delay(2,00 с) -> ... сім разів
+//          вікно 21,7 с, з них ~18 с процесор крутиться на повній частоті,
+//          не роблячи нічого
+//
+//   стало: зміряв N разів поспіль -> передав ОДИН раз -> спати
+//          вікно ~2-4 с
+//
+// Це та сама хвороба, що була у сні (піни лишались виходами й живили сплячі
+// мікросхеми), тільки в іншій фазі: питання не «що вузол робить», а «що він
+// робить, поки чекає».
+//
+// ЧОМУ РОЗНОСИТИ ВІДЛІКИ ПО ВІКНУ НЕ ТРЕБА. Заміряно на опорному вузлі
+// (docs/оптимізація-вікна-семплювання.md): реальна зміна показника за 15 хвилин
+// — 1,38 одиниці ADC, власний шум сенсора — 1,74. Тобто всередині двадцяти
+// секунд сигналу просто нічому мінятись, і двосекундні паузи між відліками
+// купували рівно нічого за 12 секунд неспання.
+//
+// ЩО ЛИШИЛОСЬ ВІД СТАРОЇ: журнал подій у RTC, розбір пінів перед сном
+// (releasePinsForSleep), холодний сон радіо, компенсація часу циклу, шкала
+// ґрунту, перевірка «чи це взагалі батарея».
+//
+// ЧОГО НЕМА НАВМИСНО: OLED і стендові режими (AGRO_SCREEN_TRACE, SOIL_AB_TEST,
+// SOIL_WARMUP_PROBE). Вони лишаються в `greenhouse-node-lowpower` — там і
+// налагоджувати. Тут кожен зайвий пін це витік у сні, а кожна зайва мілісекунда
+// коштує як 47 секунд сну.
+
+#include <Arduino.h>
+#include <RadioLib.h>
+#include <Adafruit_SHT31.h>
+#include <esp_sleep.h>
+#include <esp_system.h>
+
+// ---------------------------------------------------------------------------
+// Параметри збірки
+// ---------------------------------------------------------------------------
+
+// ПЕРІОД ЦИКЛУ в хвилинах — від старту до старту, а не тривалість сну.
+#ifndef SLEEP_MINUTES
+#define SLEEP_MINUTES 15
+#endif
+
+#ifndef NODE_ID
+#define NODE_ID 0
+#endif
+
+// Скільки відліків ґрунту йде в пакет. Три — компроміс: при втраті одного
+// лишаються два для медіани, при двох лишився б один без страховки.
+#ifndef SOIL_SAMPLES
+#define SOIL_SAMPLES 3
+#endif
+
+// Пауза між відліками. НЕ нуль: три `analogRead` поспіль виконуються за
+// мікросекунди, і це не три виміри, а один, прочитаний тричі — шум ADC на
+// такому масштабі корельований, і медіана з них нічого не прибирає.
+//
+// 50 мс — обережна оцінка, а не заміряне число. Чи достатньо цього для
+// незалежності відліків, покаже `lowpower_probe` зі старої прошивки: він
+// малює криву з кроком, який ми задамо. Поки крива не знята — параметр тут,
+// а не константа в коді.
+#ifndef SOIL_GAP_MS
+#define SOIL_GAP_MS 50
+#endif
+
+// Скільки перших відліків викинути.
+//
+// Заміряно на живих даних: перший відлік циклу (на 76-87 мс від Vext) занижений
+// на 22 одиниці — стабільно, у 442 бурстах із 442. Це не шум, а систематичний
+// зсув в один бік, і в медіану його пускати не можна.
+//
+// Чому саме викидати, а не чекати: причина зсуву не встановлена. Це або сенсор
+// не вийшов на полицю, або ADC не встоявся після холодного старту плати — дві
+// гіпотези, які лікуються протилежно, а розрізнити їх нема на чому: між 0,087 с
+// і 3,2 с у даних немає жодного відліку. Викидання працює в обох випадках.
+#ifndef SOIL_DISCARD_FIRST
+#define SOIL_DISCARD_FIRST 1
+#endif
+
+// Скільки тримати Vext до ПЕРШОГО зарахованого відліку.
+//
+// Це головна невідома цієї прошивки, тому вона параметр, а не константа.
+// Єдина точка, про яку ми ТОЧНО знаємо, що сенсор на ній усталений — 3,2 с
+// (позиція 1 старого бурста). Усе, що менше, — надія, а не знання.
+//
+// Тому бойовий дефолт 3000: бере певні ×5,5 замість можливих ×11. Коли крива
+// виходу буде знята, тут стане заміряне число.
+#ifndef SOIL_WARMUP_MS
+#define SOIL_WARMUP_MS 3000
+#endif
+
+// SOIL_SENSOR_COUNT тут НЕМА свідомо. У v1 медіана бралась по ТРЬОХ КАНАЛАХ, і
+// це був баг: непідключений ADC-пін віддає шум, а не нуль, тож медіана з
+// (реальне, шум, шум) повертала реальне значення приблизно в половині випадків.
+// Тут медіана береться по ЧАСУ з одного каналу — інша величина й інший сенс.
+// Другий сенсор, коли з'явиться, поїде окремим полем, а не в ту саму медіану.
+
+#define SHT_RETRIES        3
+#define SHT_RETRY_DELAY_MS 150
+
+// Пауза між подачею Vext і першим доторком до I2C. SHT31 піднімається ~1,5 мс;
+// без цієї паузи він відповідав на адресу, але віддавав NAN.
+#define SENSOR_SETTLE_MS 20
+
+// ---------------------------------------------------------------------------
+// Пінаут Heltec WiFi LoRa 32 V3 (ESP32-S3 + SX1262)
+// ---------------------------------------------------------------------------
+
+#define LORA_NSS   8
+#define LORA_SCK   9
+#define LORA_MOSI  10
+#define LORA_MISO  11
+#define LORA_RST   12
+#define LORA_BUSY  13
+#define LORA_DIO1  14
+
+#define OLED_SDA   17
+#define OLED_SCL   18
+#define OLED_RST   21
+#define VEXT_CTRL  36
+#define LED_PIN    35
+
+#define SOIL_1     2
+#define SOIL_2     3
+#define SOIL_3     4
+const int SOIL_PINS[3] = {SOIL_1, SOIL_2, SOIL_3};
+
+#define AIR_SDA    41
+#define AIR_SCL    42
+
+// VBAT на GPIO1 через дільник, керований GPIO37. НЕ займати GPIO1 під сенсори.
+#define VBAT_ADC   1
+#define VBAT_CTRL  37
+#define VBAT_DIVIDER 4.9f
+
+// ---------------------------------------------------------------------------
+// Serial
+// ---------------------------------------------------------------------------
+// У теплиці USB не підключений, а кожен printf — це місце у flash, час на UART
+// і блокуючий flush перед сном. -DAGRO_DEBUG_SERIAL вмикає друк назад.
+
+#ifdef AGRO_DEBUG_SERIAL
+#define LOG_BEGIN() Serial.begin(115200)
+#define LOG(...)    Serial.printf(__VA_ARGS__)
+#define LOG_LN(x)   Serial.println(x)
+#define LOG_FLUSH() Serial.flush()
+#else
+#define LOG_BEGIN() ((void)0)
+#define LOG(...)    ((void)0)
+#define LOG_LN(x)   ((void)0)
+#define LOG_FLUSH() ((void)0)
+#endif
+
+// ---------------------------------------------------------------------------
+// Журнал подій у RTC-пам'яті
+// ---------------------------------------------------------------------------
+// Коди збігаються зі старою прошивкою — сервер їх уже розбирає, і розходитись
+// тут означало б ламати `decode_flags()` в адаптері.
+
+#define EV_NONE             0
+#define EV_COLD_BOOT        1
+#define EV_RST_BROWNOUT     2
+#define EV_RST_PANIC        3
+#define EV_RST_WDT          4
+#define EV_LORA_INIT_FAIL   5
+#define EV_LORA_TX_FAIL     6
+#define EV_I2C_FAIL         7
+#define EV_SHT_NAN          8
+#define EV_SOIL_RANGE       9
+#define EV_VBAT_LOW         10
+#define EV_VBAT_CRITICAL    11
+#define EV_RADIO_SLEEP_FAIL 12
+
+#define EVENT_RING_SIZE 24
+#define RTC_LOG_MAGIC   0x41475232UL  // "AGR2" — інший, ніж у v1: спільна
+                                      // RTC-пам'ять, і чужий слот треба
+                                      // прочитати як сміття, а не як свій
+
+#define VBAT_LOW_V      3.50f
+#define VBAT_CRITICAL_V 3.35f
+
+#define SOIL_RAW_MIN 300
+#define SOIL_RAW_MAX 3800
+
+RTC_NOINIT_ATTR struct {
+  uint32_t magic;
+  uint32_t bootCount;
+  uint32_t errFlags;
+  uint16_t errSeq;
+  uint16_t ring[EVENT_RING_SIZE];
+  uint8_t  head;
+} rtcLog;
+
+static_assert(sizeof(rtcLog) == 64, "RTC event log slot must stay 64 bytes");
+
+void logEvent(uint8_t code) {
+  rtcLog.errFlags |= (1UL << code);
+  rtcLog.errSeq++;
+  rtcLog.ring[rtcLog.head] =
+      ((uint16_t)code << 12) | (uint16_t)(rtcLog.bootCount & 0x0FFF);
+  rtcLog.head = (rtcLog.head + 1) % EVENT_RING_SIZE;
+  LOG("EV %u @boot %lu\n", code, rtcLog.bootCount);
+}
+
+void initEventLog() {
+  if (rtcLog.magic != RTC_LOG_MAGIC) {
+    memset(&rtcLog, 0, sizeof(rtcLog));
+    rtcLog.magic = RTC_LOG_MAGIC;
+    rtcLog.bootCount = 1;
+    logEvent(EV_COLD_BOOT);
+    return;
+  }
+  rtcLog.bootCount++;
+}
+
+void logResetReason() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_BROWNOUT: logEvent(EV_RST_BROWNOUT); break;
+    case ESP_RST_PANIC:    logEvent(EV_RST_PANIC);    break;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:      logEvent(EV_RST_WDT);      break;
+    default: break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Залізо
+// ---------------------------------------------------------------------------
+
+SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
+TwoWire airWire = TwoWire(1);
+Adafruit_SHT31 sht31 = Adafruit_SHT31(&airWire);
+
+bool radioReady = false;
+unsigned long vextOnAtMs = 0;
+
+void powerOnVext() {
+  pinMode(VEXT_CTRL, OUTPUT);
+  digitalWrite(VEXT_CTRL, LOW);  // LOW = живлення подано
+  vextOnAtMs = millis();
+}
+
+void powerOffVext() {
+  digitalWrite(VEXT_CTRL, HIGH);
+}
+
+// ---------------------------------------------------------------------------
+// Батарея
+// ---------------------------------------------------------------------------
+
+float readBatteryVolts() {
+  // Дільник на цій ревізії вмикається ВИСОКИМ рівнем — протилежно до Vext_Ctrl.
+  // Перевірено на залізі 2026-08-23: CTRL=LOW -> 0 мВ, CTRL=HIGH -> 811 мВ.
+  pinMode(VBAT_CTRL, OUTPUT);
+  digitalWrite(VBAT_CTRL, HIGH);
+  delay(10);
+
+  analogSetPinAttenuation(VBAT_ADC, ADC_11db);
+
+  // ЧИ ЦЕ ВЗАГАЛІ БАТАРЕЯ. Поріг за рівнем не працює: на USB без комірки
+  // дільник читає шину зарядника й дає правдоподібні 3,7-4,1 В (цей вузол уже
+  // рапортував 4,02 і 4,25 без жодної банки). Розрізняє СТАБІЛЬНІСТЬ.
+  uint32_t lo = 4095, hi = 0;
+  for (int i = 0; i < 8; i++) {
+    uint32_t one = analogReadMilliVolts(VBAT_ADC);
+    if (one < lo) lo = one;
+    if (one > hi) hi = one;
+    delay(3);
+  }
+  const bool unstable = (hi - lo) > 40;
+
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; i++) {
+    mv += analogReadMilliVolts(VBAT_ADC);
+  }
+  mv /= 8;
+
+  digitalWrite(VBAT_CTRL, LOW);
+
+  float volts = (mv * VBAT_DIVIDER) / 1000.0f;
+
+  // NAN, а не нуль: "не знаємо" це не "розряджено вщент".
+  if (unstable || volts < 2.5f) {
+    return NAN;
+  }
+
+  if (volts < VBAT_CRITICAL_V) {
+    logEvent(EV_VBAT_CRITICAL);
+  } else if (volts < VBAT_LOW_V) {
+    logEvent(EV_VBAT_LOW);
+  }
+  return volts;
+}
+
+// ---------------------------------------------------------------------------
+// Ґрунт
+// ---------------------------------------------------------------------------
+// Межі й форма заміряні — docs/калібрування-ґрунту.md. Логарифм, а не map():
+// відгук сенсора експоненційний, і лінійна шкала з'їдає всю мокру половину.
+
+#define SOIL_DRY_RAW    2874
+#define SOIL_WET_RAW    1050
+#define SOIL_ASYMPTOTE  1043
+
+int soilRawToPercent(int humSoil) {
+  if (humSoil <= SOIL_ASYMPTOTE + 1) return 100;
+  if (humSoil >= SOIL_DRY_RAW)       return 0;
+
+  const float span = (float)(SOIL_DRY_RAW - SOIL_ASYMPTOTE);
+  const float full = logf((float)(SOIL_WET_RAW - SOIL_ASYMPTOTE) / span);
+  const float here = logf((float)(humSoil - SOIL_ASYMPTOTE) / span);
+
+  return constrain((int)(100.0f * here / full), 0, 100);
+}
+
+// Один сирий відлік із першого підключеного каналу.
+int readSoilOnce() {
+  // Перший вимір після старту ADC регулярно виходить кривим (мультиплексор і
+  // схема вибірки ще не встоялись) — прочитати й викинути.
+  analogRead(SOIL_PINS[0]);
+  return analogRead(SOIL_PINS[0]);
+}
+
+// Результат бурста. Медіана — те, що піде в шкалу; min/max — розкид, заради
+// якого бурст узагалі існує. Один відлік нема з чим порівняти: викид від
+// наводки не відрізнити від справжньої зміни, і саме він лишиться в історії.
+struct SoilBurst {
+  int median;
+  int minimum;
+  int maximum;
+  int count;
+  unsigned long firstAtMs;  // від подачі Vext — щоб прогрів було видно в даних,
+                            // а не доводилось довіряти константі
+};
+
+SoilBurst readSoilBurst() {
+  int v[SOIL_SAMPLES];
+
+  // Викинуті відліки — теж повноцінні читання з тією ж паузою: нас цікавить
+  // стан сенсора в часі, а не швидкість циклу.
+  for (int i = 0; i < SOIL_DISCARD_FIRST; i++) {
+    readSoilOnce();
+    delay(SOIL_GAP_MS);
+  }
+
+  SoilBurst b;
+  b.firstAtMs = millis() - vextOnAtMs;
+  b.count = SOIL_SAMPLES;
+
+  for (int i = 0; i < SOIL_SAMPLES; i++) {
+    v[i] = readSoilOnce();
+    LOG("soil[%d] = %d (at %lu ms)\n", i, v[i], millis() - vextOnAtMs);
+    if (i + 1 < SOIL_SAMPLES) delay(SOIL_GAP_MS);
+  }
+
+  // Сортування вставками — на трьох-п'яти елементах це і найшвидше, і
+  // найзрозуміліше. qsort тут коштував би дорожче за сам замір.
+  for (int i = 1; i < SOIL_SAMPLES; i++) {
+    int key = v[i], j = i - 1;
+    while (j >= 0 && v[j] > key) { v[j + 1] = v[j]; j--; }
+    v[j + 1] = key;
+  }
+
+  b.minimum = v[0];
+  b.maximum = v[SOIL_SAMPLES - 1];
+  b.median  = v[SOIL_SAMPLES / 2];
+
+  // Обрив або КЗ ловимо окремо: медіана переживе один відпалий канал мовчки,
+  // і без цієї перевірки поломка ніколи не спливе.
+  if (b.median < SOIL_RAW_MIN || b.median > SOIL_RAW_MAX) {
+    logEvent(EV_SOIL_RANGE);
+  }
+  return b;
+}
+
+// ---------------------------------------------------------------------------
+// Повітря
+// ---------------------------------------------------------------------------
+
+bool readAir(float &airTemp, float &airHum) {
+  for (int attempt = 0; attempt < SHT_RETRIES; attempt++) {
+    airTemp = sht31.readTemperature();
+    airHum = sht31.readHumidity();
+    if (!isnan(airTemp) && !isnan(airHum)) return true;
+
+    // Повторити те саме звернення до сенсора, який уже мовчить, — марно.
+    // Скидання повертає його з підвислого стану.
+    sht31.reset();
+    delay(SHT_RETRY_DELAY_MS);
+  }
+  LOG_LN("SHT31 read failed (NAN) after retries");
+  logEvent(EV_SHT_NAN);
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Пакет
+// ---------------------------------------------------------------------------
+// Формат той самий JSON, що й у v1 — шлюз парсить його як є. Нові поля
+// (soil_min/soil_max/soil_n) адаптер поки відкидає: у `GatewayPacket` їх нема.
+// Це не поломка, а порядок робіт — див. README, «Що треба на сервері».
+//
+// Урок звідти ж: поле, якого нема в моделі, гине МОВЧКИ. Так уже сталось із
+// vbat, потім із soil_at_ms. Тому нове поле не вважається зробленим, доки не
+// перевірено, що воно лягло в базу.
+
+String buildTelemetry(const SoilBurst &soil, int soilPercent,
+                      bool airOk, float airTemp, float airHum, float vbat) {
+  String json = "{\"type\":\"measurement\",\"node_id\":" + String(NODE_ID);
+
+  // Немає полів = немає даних. Приймальний бік відрізнить це від нуля.
+  if (airOk) {
+    json += ",\"air_temperature\":" + String(airTemp, 1);
+    json += ",\"air_humidity\":" + String(airHum, 1);
+  }
+
+  json += ",\"soil_moisture\":" + String(soilPercent);
+  json += ",\"soil_raw\":" + String(soil.median);
+  json += ",\"soil_min\":" + String(soil.minimum);
+  json += ",\"soil_max\":" + String(soil.maximum);
+  json += ",\"soil_n\":" + String(soil.count);
+  json += ",\"soil_at_ms\":" + String(soil.firstAtMs);
+
+  if (!isnan(vbat)) {
+    json += ",\"vbat\":" + String(vbat, 2);
+  }
+  json += ",\"boot\":" + String(rtcLog.bootCount);
+
+  if (rtcLog.errFlags != 0) {
+    json += ",\"err\":" + String(rtcLog.errFlags);
+    json += ",\"eseq\":" + String(rtcLog.errSeq);
+  }
+
+  json += "}";
+  return json;
+}
+
+// ---------------------------------------------------------------------------
+// Сон
+// ---------------------------------------------------------------------------
+
+// Порядок пінів і сам прийом — з ropg/heltec_esp32_lora_v3. Механізм витоку:
+// пін, що лишився виходом, тримає рівень на вході вже сплячої мікросхеми й
+// живить її вхідні каскади через захисні діоди. Тече не ESP32 — тече через
+// SX1262 і SSD1306, які формально вимкнені.
+//
+// Заміряно на нашому екземплярі: 0,84 мА без цього розбору, 0,01 мА з ним.
+// VBAT_CTRL у списку нема свідомо — readBatteryVolts() явно кладе його в LOW,
+// а відпустити означало б лишити затвор спливати.
+void releasePinsForSleep() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  const int idlePins[] = {VBAT_ADC, LED_PIN,
+                          LORA_DIO1, LORA_RST, LORA_BUSY, LORA_NSS,
+                          LORA_MISO, LORA_MOSI, LORA_SCK,
+                          OLED_SDA, OLED_SCL, OLED_RST,
+                          AIR_SDA, AIR_SCL,
+                          SOIL_1, SOIL_2, SOIL_3};
+  for (unsigned i = 0; i < sizeof(idlePins) / sizeof(idlePins[0]); i++) {
+    pinMode(idlePins[i], INPUT);
+  }
+}
+
+void enterDeepSleep() {
+  // Порядок: спершу приспати радіо, потім зняти Vext, і аж потім відпускати
+  // піни — розбір має йти після того, як усе вимкнено.
+  //
+  // sleep(false) — ХОЛОДНИЙ сон SX1262: 160 нА замість 0,6-1,2 мкА теплого.
+  // Втрата конфігурації нічого не коштує, бо deep sleep це холодний старт усієї
+  // плати, і радіо однаково піднімається заново щоцикл.
+  int radioSleepState = radio.sleep(false);
+  if (radioSleepState != RADIOLIB_ERR_NONE && radioReady) {
+    LOG("radio.sleep failed, code %d\n", radioSleepState);
+    logEvent(EV_RADIO_SLEEP_FAIL);
+  }
+  powerOffVext();
+  releasePinsForSleep();
+
+  // ЦИКЛ, а не сон: віднімаємо час, який плата вже пропрацювала, щоб від старту
+  // до старту вийшло рівно SLEEP_MINUTES і заміри різних вузлів лишались
+  // синхронними.
+  const uint64_t cycleUs = (uint64_t)SLEEP_MINUTES * 60ULL * 1000000ULL;
+  const uint64_t awakeUs = (uint64_t)millis() * 1000ULL;
+
+  // Якщо робота чомусь зайняла весь цикл — не лягаємо на нуль. Межа
+  // пропорційна: жорсткі 60 с при SLEEP_MINUTES=1 дорівнювали цілому циклу, і
+  // компенсація мовчки вимикалась.
+  const uint64_t floorUs = 60ULL * 1000000ULL;
+  const uint64_t minSleepUs = (cycleUs / 2 < floorUs) ? cycleUs / 2 : floorUs;
+
+  uint64_t sleepUs = (awakeUs + minSleepUs < cycleUs) ? cycleUs - awakeUs
+                                                      : minSleepUs;
+
+  LOG("Awake %lu ms, sleeping %llu s -> cycle %llu s (asked %d min)\n",
+      millis(), sleepUs / 1000000ULL,
+      (awakeUs + sleepUs) / 1000000ULL, SLEEP_MINUTES);
+  LOG_FLUSH();
+
+  esp_sleep_enable_timer_wakeup(sleepUs);
+  esp_deep_sleep_start();
+  // сюди виконання не повертається — наступний рядок буде вже setup()
+}
+
+// ---------------------------------------------------------------------------
+// Цикл
+// ---------------------------------------------------------------------------
+// Уся робота живе в setup(): пробудження з deep sleep — це не продовження
+// виконання, а скидання, тож loop() не викликається жодного разу. На відміну
+// від v1, тут це не умовність — повторювати нема чого, цикл рівно один.
+
+void setup() {
+  // 240 МГц нема на чому витрачати: робота — це чекання сенсорів і ефіру.
+  setCpuFrequencyMhz(80);
+
+  LOG_BEGIN();
+
+  // Спершу журнал — інакше перші ж logEvent() писали б у неініціалізований слот.
+  initEventLog();
+  logResetReason();
+
+  powerOnVext();
+
+  // Пауза між подачею Vext і першим доторком до шини: SHT31 піднімається
+  // ~1,5 мс, і опитування в цей момент лишало його в непевному стані —
+  // відповідав на адресу, але читання поверталось NAN.
+  delay(SENSOR_SETTLE_MS);
+
+  pinMode(AIR_SDA, INPUT_PULLUP);
+  pinMode(AIR_SCL, INPUT_PULLUP);
+  airWire.begin(AIR_SDA, AIR_SCL);
+  if (!sht31.begin(0x44)) {
+    // Сенсора нема на шині взагалі — інша поломка, ніж NAN при читанні.
+    logEvent(EV_I2C_FAIL);
+  }
+
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+  int radioState = radio.begin(868.0);
+  radioReady = (radioState == RADIOLIB_ERR_NONE);
+  if (!radioReady) {
+    // Радіо не піднялось — не крутимось з увімкненим живленням, а йдемо спати:
+    // інакше один збій з'їдає всю батарею.
+    LOG("LoRa init failed, code %d\n", radioState);
+    logEvent(EV_LORA_INIT_FAIL);
+    enterDeepSleep();
+  }
+
+  // Прогрів рахується від подачі Vext, тож ініціалізація I2C і радіо вище йшла
+  // паралельно з ним, а не додавалась зверху.
+  unsigned long elapsed = millis() - vextOnAtMs;
+  if (elapsed < SOIL_WARMUP_MS) {
+    delay(SOIL_WARMUP_MS - elapsed);
+  }
+
+  SoilBurst soil = readSoilBurst();
+  int soilPercent = soilRawToPercent(soil.median);
+
+  float airTemp = 0, airHum = 0;
+  bool airOk = readAir(airTemp, airHum);
+  float vbat = readBatteryVolts();
+
+  String msg = buildTelemetry(soil, soilPercent, airOk, airTemp, airHum, vbat);
+  int txState = radio.transmit(msg);
+
+  if (txState == RADIOLIB_ERR_NONE) {
+    // Прапорці доїхали — тільки тепер їх можна гасити. Одометр errSeq росте
+    // далі, щоб сервер бачив повтори тієї самої помилки.
+    rtcLog.errFlags = 0;
+    LOG_LN("Sent! " + msg);
+  } else {
+    LOG("Send failed, code %d\n", txState);
+    logEvent(EV_LORA_TX_FAIL);
+  }
+
+  enterDeepSleep();
+}
+
+void loop() {
+  // Недосяжно: setup() завжди закінчується deep sleep.
+}
