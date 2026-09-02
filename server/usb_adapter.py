@@ -73,6 +73,12 @@ class GatewayPacket(BaseModel):
     # Час заміру ґрунту від подачі Vext. Шле лише -lowpower; без цього поля
     # позицію відліку у вікні відновити нічим.
     soil_at_ms: int | None = None
+    # Розкид бурста: мінімум, максимум і скільки відліків усереднено.
+    # Шле лише v2 — заради них бурст і існує. Один відлік нема з чим порівняти,
+    # а min/max одразу показують, чи це вимір, чи наводка.
+    soil_min: int | None = None
+    soil_max: int | None = None
+    soil_n: int | None = None
     rssi: int
     snr: float
     # vbat шлють обидві прошивки (у greenhouse-node доданий для етапу 3),
@@ -135,6 +141,9 @@ def handle_measurement(client: httpx.Client, packet: GatewayPacket, label: str) 
         "soil_moisture": packet.soil_moisture,
         "soil_raw": packet.soil_raw,
         "soil_at_ms": packet.soil_at_ms,
+        "soil_min": packet.soil_min,
+        "soil_max": packet.soil_max,
+        "soil_n": packet.soil_n,
         "rssi": packet.rssi,
         "snr": packet.snr,
         "vbat": packet.vbat,
