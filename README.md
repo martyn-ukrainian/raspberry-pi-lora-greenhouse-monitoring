@@ -39,7 +39,7 @@ only come from the sensor.
 The `T±10` warm-up was measured on the bench, **without a deep-sleep cycle**.
 In the field the first reading, 87 ms after wake-up, is consistently 22 counts
 low — whether that is the sensor or the ADC after a cold boot, the current data
-cannot separate ([`docs/оптимізація-вікна-семплювання.md`](./docs/оптимізація-вікна-семплювання.md)).
+cannot separate ([`docs/дослідження/оптимізація-вікна-семплювання.md`](./docs/дослідження/оптимізація-вікна-семплювання.md)).
 
 **v2.0 wins, but not for the reason the air-to-soil span suggested.** That span
 is 2.4× wider on v2.0 — and it turned out to be a poor predictor: both versions
@@ -108,8 +108,8 @@ One honest difference: the literature's reference is gravimetric water content
 (weigh and oven-dry); ours is water added. Our scale is therefore **relative** and
 does not claim θ in m³/m³.
 
-Method, numbers and sources: [`docs/нелінійна-шкала.md`](./docs/нелінійна-шкала.md),
-[`docs/калібрування-ґрунту.md`](./docs/калібрування-ґрунту.md).
+Method, numbers and sources: [`docs/дослідження/нелінійна-шкала.md`](./docs/дослідження/нелінійна-шкала.md),
+[`docs/дослідження/калібрування-ґрунту.md`](./docs/дослідження/калібрування-ґрунту.md).
 
 ## Continuous node vs duty-cycled node
 
@@ -143,7 +143,7 @@ the `Vext` window falls from 19.5 s to 9.5 s while airtime drops from 2.0% to
 a current sensor we do not have.
 
 Method, tables and the limits of the conclusions:
-[`docs/оптимізація-вікна-семплювання.md`](./docs/оптимізація-вікна-семплювання.md).
+[`docs/дослідження/оптимізація-вікна-семплювання.md`](./docs/дослідження/оптимізація-вікна-семплювання.md).
 
 ## The sleep-current leak: 0.84 mA instead of 0.135
 
@@ -182,13 +182,13 @@ exchange rate of 1:4000), and on a 15-minute cycle the projected life goes from
 73 days to ~137 — or to nine months once the shortened window lands too.
 
 Measurement firmware and the bisection protocol: [`firmware/power-bisect`](./firmware/power-bisect),
-the write-up is in [`docs/струм-сну.md`](./docs/струм-сну.md).
+the write-up is in [`docs/дослідження/струм-сну.md`](./docs/дослідження/струм-сну.md).
 
 ## Architecture
 
 Each greenhouse is an autonomous node built on a **Heltec WiFi LoRa 32 V3** (ESP32-S3 with SX1262). Each node carries an **SHT31** for air temperature and humidity, plus a **v1.2 capacitive soil-moisture sensor**. Readings are transmitted over **868 MHz LoRa**. A gateway node in the seedling greenhouse aggregates all traffic and forwards it via USB to a **Raspberry Pi 5**. The Pi runs a **Python + FastAPI** backend backed by **SQLite (via SQLModel)**, applies threshold logic, and sends notifications through a **Telegram bot**.
 
-Full breakdown in [`docs/architecture.md`](./docs/architecture.md).
+Full breakdown in [`docs/довідка/architecture.md`](./docs/довідка/architecture.md).
 
 ### Data flow
 
@@ -357,7 +357,7 @@ agro-bot-hub  (@AgroMonitorBot)
 
 Each `agro-#N` is a fully isolated `agro-server` deployment with its own database and greenhouses. The `agro-bot-hub` routes notifications between the shared Telegram bot and the correct instance, based on a per-user token generated at Telegram-linking time.
 
-Model selection is a `.env` switch: `NOTIFIER=telegram_direct` (own bot) vs `NOTIFIER=telegram_hub` (shared hub). See [`docs/alerts.md`](./docs/alerts.md) for the detailed design.
+Model selection is a `.env` switch: `NOTIFIER=telegram_direct` (own bot) vs `NOTIFIER=telegram_hub` (shared hub). See [`docs/довідка/alerts.md`](./docs/довідка/alerts.md) for the detailed design.
 
 ## Tech stack
 

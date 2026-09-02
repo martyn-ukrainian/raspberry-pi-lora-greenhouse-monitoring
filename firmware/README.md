@@ -3,7 +3,7 @@
 # Firmware
 
 PlatformIO projects for the greenhouse irrigation system's LoRa nodes.
-Architecture and the wire protocol are described in [`docs/greenhouse_architecture.md`](../docs/greenhouse_architecture.md).
+Architecture and the wire protocol are described in [`docs/довідка/greenhouse_architecture.md`](../docs/довідка/greenhouse_architecture.md).
 
 ## Structure
 

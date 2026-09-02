@@ -38,7 +38,7 @@ FastAPI на Vercel (serverless), Postgres у Neon через pooled connection.
 Токен — `Authorization: Bearer <INGEST_TOKEN>`: на запис обов'язковий, читання
 відкрите (це калібрувальна телеметрія, не секрети).
 
-**Контракт пачки** (`docs/INGEST-CONTRACT.md`): `device`, `seq`, `labels`,
+**Контракт пачки** (`docs/довідка/INGEST-CONTRACT.md`): `device`, `seq`, `labels`,
 `samples[]` по 30; `t` — секунди від старту прогону; відсутнє поле ≠ нуль;
 дедуплікація за `(device, seq)`; на платі черга на 4 пачки в RAM, щоб пережити
 короткий обрив.

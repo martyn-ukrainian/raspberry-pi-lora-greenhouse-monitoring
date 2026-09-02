@@ -76,4 +76,4 @@ ssh agro@agro-pi.local
 ## Довідник команд на Pi
 
 Детальний cheatsheet усіх Pi-операцій (логи, рестарт, deploy, БД,
-здоровʼя) — у `docs/pi-cheatsheet.md`.
+здоровʼя) — у `docs/довідка/pi-cheatsheet.md`.

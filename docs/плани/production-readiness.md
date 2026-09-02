@@ -134,8 +134,8 @@
 ## 10. Документація — 6/10
 
 **Що є:**
-- `docs/pi-cheatsheet.md` — Pi-команди.
-- `README-UA.md`, `docs/alerts.md`.
+- `docs/довідка/pi-cheatsheet.md` — Pi-команди.
+- `README-UA.md`, `docs/довідка/alerts.md`.
 
 **Що не так:**
 - 🟡 **Немає architecture-діаграми.**

@@ -110,7 +110,7 @@ greenhouses:
 
 Доступ: адмін (чат із `TELEGRAM_CHAT_ID`) або користувач із `allow=true` у
 таблиці `botuser`. Будь-яке повідомлення реєструє користувача (без доступу);
-дозвіл видається вручну (`BotUserRepository.set_allow`, див. `docs/pi-cheatsheet.md`).
+дозвіл видається вручну (`BotUserRepository.set_allow`, див. `docs/довідка/pi-cheatsheet.md`).
 Чужим бот відповідає «⛔️ Немає доступу».
 
 ## Конфіг (`.env`)

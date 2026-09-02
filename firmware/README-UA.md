@@ -3,7 +3,7 @@
 # Прошивки (firmware)
 
 PlatformIO-проєкти для LoRa-вузлів системи поливу теплиць.
-Архітектура й протокол обміну описані в [`docs/greenhouse_architecture.md`](../docs/greenhouse_architecture.md).
+Архітектура й протокол обміну описані в [`docs/довідка/greenhouse_architecture.md`](../docs/довідка/greenhouse_architecture.md).
 
 ## Структура
 

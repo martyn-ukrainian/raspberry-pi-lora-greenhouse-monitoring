@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 DRY, WET, ASY = 2874, 1050, 1043
 OUT = Path(__file__).resolve().parent.parent / "data" / "scale_curve.png"
 
-# Заміряні точки (docs/калібрування-ґрунту.md)
+# Заміряні точки (docs/дослідження/калібрування-ґрунту.md)
 MARKS = [
     (2874, "сухий ґрунт\nстіл 22.08"),
     (1722, "відро\n+50 мл"),
