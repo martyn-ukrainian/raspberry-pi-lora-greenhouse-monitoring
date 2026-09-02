@@ -194,9 +194,9 @@ Compiled from `schema.png` (photo of the board pinout) + the pinout in `main.cpp
 | 12 | GPIO1 | ADC1_CH0, VBAT_Read |
 | 11 | GPIO38 | SUBSPIWP, FSPIWP |
 | 10 | GPIO39 | MTCK |
-| 9 | GPIO40 | MTDO — used as **SCL** (2nd I2C bus, air sensor) |
+| 9 | GPIO40 | MTDO |
 | 8 | GPIO41 | used as **SDA** (2nd I2C bus, air sensor) |
-| 7 | GPIO42 | |
+| 7 | GPIO42 | used as **SCL** (2nd I2C bus, air sensor) |
 | 6 | GPIO45 | |
 | 5 | GPIO46 | |
 | 4 | GPIO37 | ADC_Ctrl↑, SUBSPIQ, FSPIQ, SPIDQS |
