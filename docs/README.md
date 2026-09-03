@@ -82,5 +82,5 @@
   [agro-docs.vercel.app](https://agro-docs.vercel.app/). Це **не** ці файли.
 - `firmware/*/README.md` і `CLAUDE.md` — те, що стосується конкретної прошивки
   й має лежати поруч із її кодом.
-- `MLLearning/projects/measurement/notebooks/` — ноутбуки, на яких стоять
+- `notebooks/` — ноутбуки, на яких стоять
   висновки з теки `дослідження/`.

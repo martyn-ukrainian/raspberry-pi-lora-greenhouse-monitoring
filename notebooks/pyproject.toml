@@ -1,0 +1,12 @@
+[project]
+name = "agro-notebooks"
+version = "0.1.0"
+description = "Ноутбуки з розрахунками, на яких стоять висновки з docs/дослідження/"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "jupyter>=1.1",
+    "matplotlib>=3.10",
+    "numpy>=2.3",
+    "pandas>=2.3",
+]
