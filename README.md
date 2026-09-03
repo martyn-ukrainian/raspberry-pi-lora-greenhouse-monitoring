@@ -6,6 +6,8 @@ Field-deployed monitoring system for a small commercial greenhouse operation. Ba
 
 The primary user is a non-technical daily operator. Design priority: readable Telegram notifications over complex dashboards.
 
+📖 Docs site: [agro-docs.vercel.app](https://agro-docs.vercel.app/) · 📽 Slides: [agro-docs.vercel.app/slides](https://agro-docs.vercel.app/slides/) · 📓 Notebooks: [`notebooks/`](./notebooks/)
+
 This repository doubles as a portfolio artefact for embedded / defence-sector roles: C++ firmware on ESP32, LoRa radio at 868 MHz, full-stack Python backend, and a real field deployment on a working farm.
 
 ## Scale
@@ -254,6 +256,8 @@ Thresholds and alert config live per-greenhouse. Each sensor may override dwell 
 - **`server/`** — Python backend that ingests, stores, and serves measurements. Developed on a laptop first, then copied to the Pi unchanged. Stack: Python 3.13, FastAPI, SQLModel, SQLite.
 - **`firmware/`** — Node and gateway firmware in C++ (Arduino / PlatformIO).
 - **`docs/`** — Architecture notes, repository structure, and an ongoing log of empirical thresholds and decisions.
+- **`documentation/`** — Source of the MkDocs site at [agro-docs.vercel.app](https://agro-docs.vercel.app/), including the slide decks under `slides/`.
+- **`notebooks/`** — Jupyter notebooks and data snapshots behind the research conclusions.
 
 ## Phases
 

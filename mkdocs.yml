@@ -76,6 +76,7 @@ plugins:
             Дослідження: Research
             Гайди: Guides
             Журнал рішень: Decision log
+            Презентації: Slides
 
 markdown_extensions:
   - abbr
@@ -124,3 +125,4 @@ nav:
           - guides/index.md
           - Калібрувальний стенд: guides/soil-calibration-bench.md
       - Журнал рішень: decisions.md
+      - Презентації: /slides/

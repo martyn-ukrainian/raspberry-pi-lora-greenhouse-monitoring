@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Від 2 діб до 588</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F7F7F2; --panel:#EEF0E8; --ink:#2B2D2A; --muted:#7B7E74; --line:#D9DBD1;
+  --green:#4E7F49; --green-soft:#E1EADF; --terra:#C2573A; --terra-soft:#F3DED6;
+  --purple:#5B4FA8; --blue:#3B6E8F; --magenta:#A63D7A; --gold:#8A6D1E; --teal:#2E7A78; --grey:#A9ACA3;
+  --sans:"Roboto",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Roboto Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-snap-type:y mandatory;background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:18px;line-height:1.45;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p{margin:0}
+h1,h2{font-weight:700;letter-spacing:-.015em;text-wrap:balance}
+code,.mono{font-family:var(--mono);font-size:.9em}
+.n{font-variant-numeric:tabular-nums}
+
+/* deck chrome */
+.deck-nav{position:fixed;left:50%;transform:translateX(-50%);top:18px;z-index:5;display:flex;gap:6px;align-items:center;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.deck-nav button{font:inherit;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer}
+.deck-nav button:hover{border-color:var(--ink)}
+.deck-nav .cnt{min-width:56px;text-align:center}
+
+/* slide */
+.slide{scroll-snap-align:start;height:100vh;min-height:640px;display:flex;flex-direction:column;padding:30px clamp(24px,5vw,80px) 28px;position:relative;overflow:hidden}
+.rail{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:12.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;padding-bottom:10px;border-bottom:1.5px solid var(--line)}
+.rail b{color:var(--ink);font-weight:500}
+.body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:clamp(14px,2.4vh,26px);max-width:1280px;width:100%;margin:0 auto;min-height:0}
+.foot{display:flex;justify-content:space-between;gap:20px;font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.04em;padding-top:10px;border-top:1.5px solid var(--line)}
+
+/* type scale */
+.kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.big{font-weight:700;font-size:clamp(64px,11vw,168px);line-height:.95;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.big.g{color:var(--green)} .big.t{color:var(--terra)}
+.big small{font-size:.32em;font-weight:500;color:var(--muted);letter-spacing:-.01em;margin-left:.15em}
+.slide h2{font-size:clamp(28px,3.6vw,50px);line-height:1.1;max-width:22ch}
+.slide h2.wide{max-width:34ch}
+.lede{font-size:clamp(17px,1.55vw,22px);max-width:60ch}
+.lede.m{color:var(--muted)}
+.arrow{font-weight:400;color:var(--muted);margin:0 .12em}
+
+/* layouts */
+.two{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(24px,4vw,56px);align-items:center;min-height:0}
+.two.r{grid-template-columns:.85fr 1.15fr}
+.two.eq{grid-template-columns:1fr 1fr}
+.stack{display:flex;flex-direction:column;gap:clamp(12px,2vh,22px);min-width:0}
+@media (max-width:860px){.two,.two.r,.two.eq{grid-template-columns:1fr}}
+
+/* photo */
+.photo{position:relative;border-radius:22px;overflow:hidden;border:2px solid var(--line);background:var(--panel);min-height:0}
+.photo img{width:100%;height:100%;object-fit:cover;display:block}
+.photo.tall{height:min(66vh,760px)}
+.photo.cover{height:min(70vh,800px)}
+.photo .tag{position:absolute;left:14px;bottom:14px;background:var(--bg);border:2px solid var(--ink);border-radius:999px;padding:6px 14px;font-family:var(--mono);font-size:12.5px;letter-spacing:.04em}
+.photo .tag.t{border-color:var(--terra);color:var(--terra)} .photo .tag.g{border-color:var(--green);color:var(--green)}
+
+/* chart */
+.chart{min-height:0;display:flex;align-items:center}
+.chart img{width:100%;height:auto;max-height:58vh;object-fit:contain;display:block}
+
+/* pills, like the schema */
+.pills{display:flex;flex-wrap:wrap;gap:10px 12px}
+.pill{display:inline-flex;align-items:center;gap:10px;border:2px solid var(--ink);border-radius:999px;padding:8px 18px 8px 14px;font-size:16px;line-height:1.25;background:var(--bg);white-space:nowrap}
+.pill .dot{width:12px;height:12px;border-radius:50%;background:var(--ink);flex:none}
+.pill code{font-size:12.5px;color:var(--muted)}
+.pill.g{border-color:var(--green)} .pill.g .dot{background:var(--green)}
+.pill.t{border-color:var(--terra)} .pill.t .dot{background:var(--terra)}
+.pill.p{border-color:var(--purple)} .pill.p .dot{background:var(--purple)}
+.pill.b{border-color:var(--blue)} .pill.b .dot{background:var(--blue)}
+.pill.m{border-color:var(--magenta)} .pill.m .dot{background:var(--magenta)}
+.pill.gold{border-color:var(--gold)} .pill.gold .dot{background:var(--gold)}
+.pill.teal{border-color:var(--teal)} .pill.teal .dot{background:var(--teal)}
+.pill.dash{border-style:dashed} .pill.dash .dot{background:transparent;border:2px dashed currentColor}
+.pill.dash.g{color:var(--green)} .pill.dash.p{color:var(--purple)} .pill.dash.b{color:var(--blue)}
+.pill.off{border-color:var(--grey);color:var(--muted)} .pill.off .dot{background:var(--grey)}
+.pill.off s{text-decoration-thickness:2px}
+.pill.x{padding-left:12px} .pill.x .dot{background:none;position:relative;width:14px;height:14px;border:2px solid var(--terra)}
+.pill.x .dot::before,.pill.x .dot::after{content:"";position:absolute;left:1px;top:4px;width:8px;height:2px;background:var(--terra);transform:rotate(45deg)}
+.pill.x .dot::after{transform:rotate(-45deg)}
+.pill.x{border-color:var(--terra)}
+.pill.lg{font-size:18px;padding:11px 22px 11px 16px}
+
+/* rail-style list (the header connectors) */
+.row{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;align-items:center;font-size:17px}
+.row .k{font-family:var(--mono);font-size:13px;color:var(--muted);letter-spacing:.04em;text-align:right;white-space:nowrap}
+.row .v{border-left:2px dashed var(--line);padding-left:16px}
+.row .v.on{border-left:3px solid var(--terra)}
+
+/* table */
+table{border-collapse:collapse;width:100%;font-size:15.5px}
+th,td{text-align:left;padding:8px 14px 8px 0;border-bottom:1.5px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono);font-size:13.5px;color:var(--muted)}
+tr.hi td{color:var(--green);font-weight:700}
+tr.dim td{color:var(--muted)}
+
+/* stat blocks */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.stat{border:2px solid var(--line);border-radius:18px;padding:10px 12px;min-width:0}
+.stat .l{font-family:var(--mono);font-size:11px;letter-spacing:.06em;white-space:nowrap;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-size:clamp(22px,2.3vw,32px);font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:4px;font-variant-numeric:tabular-nums}
+.stat .s{font-size:14px;color:var(--muted);margin-top:4px}
+.stat.g{border-color:var(--green)} .stat.g .v{color:var(--green)}
+.stat.t{border-color:var(--terra)} .stat.t .v{color:var(--terra)}
+@media (max-width:860px){.stats{grid-template-columns:1fr}}
+
+/* the 0.98 -> 0.01 */
+.jump{display:grid;grid-template-columns:auto auto auto;gap:18px;align-items:center;justify-content:start}
+.jump .num{font-size:clamp(52px,7.5vw,112px);font-weight:700;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+.jump .num small{display:block;font-family:var(--mono);font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:400;margin-top:8px}
+.jump .num.t{color:var(--terra)} .jump .num.g{color:var(--green)}
+.jump .x{font-family:var(--mono);font-size:clamp(16px,1.6vw,22px);color:var(--muted);border:2px solid var(--line);border-radius:999px;padding:8px 16px;white-space:nowrap}
+
+.foot a,.rail a{color:var(--green);text-decoration:none;border-bottom:1.5px dashed var(--green)}
+.foot a:hover{border-bottom-style:solid}
+.foot a::after{content:" ↗";font-size:.9em}
+.photo img,.chart img{cursor:zoom-in}
+.lb{position:fixed;inset:0;z-index:20;background:rgba(247,247,242,.97);display:none;align-items:center;justify-content:center;padding:28px;cursor:zoom-out}
+.lb.on{display:flex}
+.lb img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.lb .hint{position:absolute;top:18px;right:24px;font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.notes{display:none;margin-top:12px;padding:10px 14px;border:1.5px dashed var(--line);border-radius:14px;font-size:14px;color:var(--muted);max-width:90ch}
+body.show-notes .notes{display:block}
+.notes::before{content:"доповідач · ";font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase}
+
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+@media print{.slide{height:auto;page-break-after:always}.deck-nav{display:none}}
+</style>
+</head>
+<body>
+
+<div class="deck-nav"><button id="prev" aria-label="попередній">←</button><span class="cnt n" id="cnt">1 / 8</span><button id="next" aria-label="наступний">→</button><button id="notesBtn">N · нотатки</button></div>
+
+<!-- ============ 1. COVER ============ -->
+<section class="slide" id="s1">
+  <div class="rail"><span><b>agro</b> · вузол вологості ґрунту</span><span>heltec v3 · lora 868 · 18650</span></div>
+  <div class="body">
+    <div class="two">
+      <div class="stack">
+        <p class="kicker">Перший виїзд у теплицю · серпень 2026</p>
+        <p class="big t">2 доби</p>
+        <h2 class="wide">Стільки прожив вузол на першому виїзді. Далі сім замірів, і жоден не дав того, чого чекали.</h2>
+        <div class="pills">
+          <span class="pill t"><span class="dot"></span>батарея 18650 · ~3000 мА·год</span>
+          <span class="pill off"><span class="dot"></span>панель? більша банка? рідше міряти?</span>
+          <span class="pill g"><span class="dot"></span>спершу програмна оптимізація</span>
+        </div>
+      </div>
+      <figure class="photo cover"><img src="assets/field-two-nodes.jpg" alt="Два вузли в ґрунті теплиці, батарея, антени, щупи біля куща"><span class="tag">24.08 · грядка · два вузли поруч</span></figure>
+    </div>
+  </div>
+  <div class="foot"><span>від 2 діб до 588 · вісім слайдів</span><span><a href="intro.html" target="_blank">інтро: система, комплектуючі, плата, калібрування</a> · докладна версія: <a href="firmware-sensors.html" target="_blank">прошивка й сенсори</a></span></div>
+  <div class="notes">Три шляхи: більше живлення, рідші виміри, програмна оптимізація. Почав з найдешевшого, що не ламає ідею. Історія далі не про те, що зробили, а про те, у чому помилялись, поки не заміряли.</div>
+</section>
+
+<!-- ============ 2. 38 mA ============ -->
+<section class="slide" id="s2">
+  <div class="rail"><span><b>1</b> · оптимізація без профілювання</span><span class="n">2 / 8</span></div>
+  <div class="body">
+    <div class="two r" style="grid-template-columns:1fr 1fr">
+      <figure class="photo tall"><img src="assets/dmm-bench-38mA.jpg" alt="Стенд: мультиметр у розриві живлення показує 38.25 мА, поруч плата на макетці, батарея 18650 і антена"><span class="tag t">38.25 mA · мультиметр у розриві · вузол не спить</span></figure>
+      <div class="stack">
+        <p class="big t" style="font-size:clamp(52px,7.5vw,108px);white-space:nowrap">38 мА<small>цілодобово</small></p>
+        <h2>Процесор, який ніколи не спить, їсть більше за екран, сенсори й радіо разом.</h2>
+        <div class="row">
+          <span class="k">перша спроба</span><span class="v">вимкнув OLED, найпомітніший (~10 мА). Майже нічого не змінилось.</span>
+          <span class="k">замір</span><span class="v on">мультиметр у розрив живлення: CPU без сну 38 мА, весь вузол 69 мА.</span>
+          <span class="k">урок</span><span class="v">спершу профілюй, потім оптимізуй найбільшу статтю. Жодне вимикання дрібниць цього не лікує.</span>
+        </div>
+        <div class="pills">
+          <span class="pill off"><span class="dot"></span><s>OLED ~10 мА</s></span>
+          <span class="pill t"><span class="dot"></span>CPU 38 мА</span>
+          <span class="pill g"><span class="dot"></span>рішення: deep sleep, прокидатись лише на вимір</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/дослідження/power-budget.md</span><span>деякі дні коштувала оптимізація навмання</span></div>
+  <div class="notes">Дух закону Амдала: виграш обмежений часткою, яку оптимізуєш. ESP32 має deep sleep з одиницями мікроампер на самому чипі. Ресерч завершено, план є. Але перш ніж будувати все на duty cycling, треба довести, що інтервальні виміри не гірші за безперервні.</div>
+</section>
+
+<!-- ============ 3. 442 of 442 ============ -->
+<section class="slide" id="s3">
+  <div class="rail"><span><b>2</b> · чи не псує сон дані</span><span class="n">3 / 8</span></div>
+  <div class="body">
+    <div class="two" style="grid-template-columns:.8fr 1.2fr">
+      <div class="stack">
+        <p class="big t">442<small>з 442</small></p>
+        <h2>Перший відлік після подачі живлення занижений на 22 одиниці. Без жодного винятку.</h2>
+        <p class="lede m">Два вузли на одній грядці, щупи за 2 см. Опорний шле безперервно, інтервальний прокидається раз на 5 хв і знімає 7 точок. Це не шум, а прогрів: точку 0 викидаємо, наступна вже в нормі.</p>
+        <div class="pills">
+          <span class="pill g"><span class="dot"></span>опорний · ~1800 пакетів/год</span>
+          <span class="pill g"><span class="dot"></span>інтервальний v1 · 7 × 3.2 с</span>
+          <span class="pill t"><span class="dot"></span>позиція 0 · −22 · викинути</span>
+        </div>
+      </div>
+      <div class="chart"><img src="assets/chart-burst-shape.svg" alt="442 бурсти по 7 точок накладені один на одного, позиція 0 систематично нижча на 22 одиниці"></div>
+    </div>
+  </div>
+  <div class="foot"><span><a href="notebooks/01_burst_shape.html" target="_blank">notebooks/01_burst_shape.ipynb</a> · stage3-lowpower · 25–28.08 · 45 тис. рядків</span><span>ємнісному сенсору треба час вийти на рівень</span></div>
+  <div class="notes">Сім точок з розкидом у часі навмисно: вимірювальна сітка, щоб потім визначити, які точки дають найкращий сигнал і скільки їх треба. Абсолютні рівні двох щупів у різних дірках різні, порівнюємо динаміку. Пакети губляться: 3.1% бурстів за чисту добу, тому фінальне вікно має нести 3 точки, не 2.</div>
+</section>
+
+<!-- ============ 4. noise vs signal ============ -->
+<section class="slide" id="s4">
+  <div class="rail"><span><b>3</b> · що кажуть 45 тисяч рядків</span><span class="n">4 / 8</span></div>
+  <div class="body">
+    <h2 class="wide">Ґрунт за 15 хвилин міняється менше, ніж сенсор шумить за секунду.</h2>
+    <div class="two" style="grid-template-columns:1.3fr .7fr;align-items:center">
+      <div class="chart"><img src="assets/chart-noise-vs-signal.svg" alt="Лог-шкала: зміна ґрунту за 15 хв 1.38, шум сенсора 1.74, похибка вікна 3.17, зсув першого відліку 21.7, зміна за 4 год 20.5, добовий розмах 39"></div>
+      <div class="stack">
+        <div class="stats">
+          <div class="stat g"><div class="l">зміна за 15 хв</div><div class="v n">1.38</div><div class="s">медіана, од. ADC</div></div>
+          <div class="stat g"><div class="l">шум сенсора</div><div class="v n">1.74</div><div class="s">σ, усталений режим</div></div>
+          <div class="stat t"><div class="l">перший відлік</div><div class="v n">21.7</div><div class="s">зсув, позиція 0</div></div>
+        </div>
+        <div class="row">
+          <span class="k">наслідок 1</span><span class="v">інтервал 5–15 хв нічого не втрачає. Дані справді повільні.</span>
+          <span class="k">наслідок 2</span><span class="v">усереднення точок у вікні не замилює сигнал: у межах вікна сигналу просто нема, лише шум.</span>
+          <span class="k">висновок</span><span class="v on">підхід валідний. Якість та сама, споживання впало кратно: 2 доби → 52 на 15-хв циклі.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><a href="notebooks/02_trend_dynamics.html" target="_blank">notebooks/02_trend_dynamics</a> · <a href="notebooks/03_window_selection.html" target="_blank">03_window_selection</a> · шум через перші різниці, diff/√2</span><span>вікно [1..3]: 3 точки, p90 = 3.17</span></div>
+  <div class="notes">Перебрав усі 10 вікон у позиціях 1–4 проти істини з позицій 5–6, які навмисно не перетинаються з кандидатами. [1..3] і [2..4] в межах шуму оцінки. Три точки, а не дві: втрата одного пакета лишає ще дві для перевірки.</div>
+</section>
+
+<!-- ============ 5. sleep leak ============ -->
+<section class="slide" id="s5">
+  <div class="rail"><span><b>4</b> · профілювання циклу · несподіванка у сні</span><span class="n">5 / 8</span></div>
+  <div class="body">
+    <div class="two r">
+      <figure class="photo tall"><img src="assets/dmm-sleep-0.98mA.jpg" alt="Мультиметр у теплиці показує 0.98 мА під час сну"><span class="tag t">0.98 mA · deep sleep · розрахунок обіцяв 0.135</span></figure>
+      <div class="stack">
+        <div class="jump">
+          <div class="num t n">0.94<small>мА у сні</small></div>
+          <div class="x">×94 щонайменше</div>
+          <div class="num g n">0.01<small>після правки пінів</small></div>
+        </div>
+        <h2 class="wide">Жоден витік не був у сенсорі. Один у власній прошивці, другий у тому, куди сенсор підключили.</h2>
+        <table style="font-size:15px">
+          <tr><th>збірка · бісекція</th><th class="r">сон</th><th>висновок</th></tr>
+          <tr class="dim"><td>голий <code>deep_sleep_start()</code></td><td class="r">0.84 мА</td><td>витік не в логіці циклу</td></tr>
+          <tr class="dim"><td>+ штатне присипляння радіо</td><td class="r">0.70 мА</td><td>радіо коштувало 0.14</td></tr>
+          <tr><td>+ 15 периферійних пінів в INPUT</td><td class="r">0.01 мА</td><td><b>піни коштували 0.69</b></td></tr>
+          <tr><td>SHT31: постійні 3V3 → комутований Ve</td><td class="r">1.00 → 0.01</td><td>їсть не чіп, а плата модуля</td></tr>
+        </table>
+        <p class="lede" style="font-size:16.5px">Піни лишались виходами і через входи живили вже сплячі SX1262 та OLED. Правка суто програмна. Модуль SHT31 не має режиму сну: підтяжки, стабілізатор, світлодіод. Правка апаратна.</p>
+        <div class="pills">
+          <span class="pill t"><span class="dot"></span>Ve · GPIO36 · LOW = увімкнено</span>
+          <span class="pill x"><span class="dot"></span>правило: нічого на постійні 3V3</span>
+          <span class="pill g"><span class="dot"></span>1 с неспання: було 40 с сну, стало година</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/дослідження/струм-сну.md · бісекція збірок · 0.01 це остання цифра мультиметра, точно дасть INA226</span><span>сон з'їдав 58 % бюджету, тепер 5 %</span></div>
+  <div class="notes">Кожна цифра в таблиці це різниця двох замірів, а не показання приладу з інтерпретацією. Механізм: у deep sleep цифровий домен знеструмлюється, але піни лишались виходами в HIGH, тож контролер подавав 3.3 В на входи чипів, у яких живлення вже зняте; струм ішов, найімовірніше, через захисні діоди вхідних каскадів. Лікування: pinMode(pin, INPUT) по списку з 15 пінів перед сном, пін стає спостерігачем. Не «hold»: ці піни треба відпустити, а не зафіксувати; hold доречний хіба для VEXT_CTRL, його стан у сні тримає підтяжка на платі. Модуль SHT31: чіп у очікуванні їсть мікроампери, даташит не бреше, але оточення на платці не має режиму сну, програмно не вимикається. Рішення: не усипляти, а знімати живлення через Ve (GPIO36, LOW = увімкнено), після подачі пауза 20 мс, інакше NAN. 0.01 мА це нижня значуща цифра мультиметра, чесно: «щонайменше в десятки разів менше». Результат: сон з'їдав 58 % бюджету, став 5 %; секунда неспання коштувала 40 с сну, тепер годину з гаком, головна валюта тепер кожна секунда вікна.</div>
+</section>
+
+<!-- ============ 6. v2 ============ -->
+<section class="slide" id="s6">
+  <div class="rail"><span><b>5</b> · v2 · та сама якість, вікно у 4 рази коротше</span><span class="n">6 / 8</span></div>
+  <div class="body">
+    <div class="stack" style="gap:8px">
+      <p class="big g" style="font-size:clamp(40px,5.6vw,80px)">21.7 с <span class="arrow">→</span> 4.6 с</p>
+      <h2 class="wide" style="max-width:44ch">Два вузли, одна грядка, третя доба поруч. Економія коштувала якості приблизно нуль.</h2>
+    </div>
+    <div class="chart"><img style="max-height:40vh" src="assets/chart-v1-v2.svg" alt="v1 і v2 на одній грядці 01–02.09: дві криві повторюють одна одну, включно з поливом уранці 02.09"></div>
+    <div class="pills">
+      <span class="pill g"><span class="dot"></span>3 відліки через 50 мс, а не 3.2 с <code>· у вікні сигналу нема</code></span>
+      <span class="pill g"><span class="dot"></span>1 пакет замість 3 <code>· медіана, min, max, n</code></span>
+      <span class="pill b"><span class="dot"></span>r = 0.953 <code>· годинні прирости</code></span>
+      <span class="pill b"><span class="dot"></span>втрати 0.0 % <code>· 261 цикл поспіль</code></span>
+    </div>
+  </div>
+  <div class="foot"><span><a href="notebooks/06_data_quality.html" target="_blank">notebooks/06_data_quality.ipynb</a> · 5 гіпотез · 42 год паралельних даних · stage4_pair.csv</span><span>кожен пакет = 0.86 с × 100 мА</span></div>
+  <div class="notes">Право на щільні відліки дала попередня знахідка: ґрунт за секунди не міняється взагалі, розтягувати точки в часі марна трата Ve. Перевірка незалежності: розмах трьох відліків живий, σ 1.2 на відлік, це не одне число, прочитане тричі. Викиди у v2 навіть чистіші. Вбудований тест чесності: рівень має піднятись на +2.08, бо бита позиція 0 більше не тягне середнє.</div>
+</section>
+
+<!-- ============ 7. x300 ============ -->
+<section class="slide" id="s7">
+  <div class="rail"><span><b>фінал</b> · кожен крок доведений числом</span><span class="n">7 / 8</span></div>
+  <div class="body">
+    <div class="two" style="grid-template-columns:.9fr 1.1fr">
+      <div class="stack">
+        <p class="kicker">ресурс батареї · від 2 діб до 588</p>
+        <p class="big g" style="font-size:clamp(48px,7vw,104px)">×300</p>
+        <h2>Якість даних не гірша, подекуди краща.</h2>
+        <table>
+          <tr><th>крок</th><th>що довело</th><th class="r">діб</th></tr>
+          <tr class="dim"><td>v0 · без сну</td><td class="mono">замір 69 мА</td><td class="r">2</td></tr>
+          <tr class="dim"><td>v1 · deep sleep, 7×7</td><td class="mono">профіль: CPU 38 мА</td><td class="r">52</td></tr>
+          <tr class="dim"><td>вікно [1..3] · 3×3</td><td class="mono">442 бурсти, теплокарта</td><td class="r">76</td></tr>
+          <tr><td>сон 0.94 → 0.01</td><td class="mono">метод виключення, піни</td><td class="r">177</td></tr>
+          <tr><td>v2 · 3 щільні × 1 пакет</td><td class="mono">ґрунт повільний; пакет 86 мА·с</td><td class="r">424</td></tr>
+          <tr class="hi"><td>v2.1 · прогрів ~1 с</td><td class="mono">крива прогріву, τ ≈ 75 мс · прогноз</td><td class="r">588</td></tr>
+        </table>
+      </div>
+      <div class="stack" style="gap:10px">
+        <div class="chart"><img style="max-height:34vh" src="assets/chart-resource-steps.svg" alt="Стовпчики ресурсу батареї по шести кроках: 2, 52, 76, 177, 424, 588 діб"></div>
+        <div class="chart"><img style="max-height:34vh" src="assets/chart-resource-curve.svg" alt="Ресурс батареї по восьми кроках оптимізації для циклів 15 і 5 хвилин: від 2 до 588 і 203 діб, сіра зона до правки сну"></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><a href="notebooks/05_summary.html" target="_blank">notebooks/05_summary.ipynb</a> · цикл 15 хв · діб за паспортних 3000 мА·год, множник ×300 від ємності не залежить</span><span>реальну ємність заміряє INA226, уже в дорозі</span></div>
+  <div class="notes">Чесне застереження: ємність ніхто не міряв, єдиний доведений прогін віддав ~600 мА·год за 7 діб, і навіть це число хитке через дільник VBAT. Множник ×300 рахується із заміряних струмів. Далі бюджет майже вичерпаний: вікно + передача = 95 % енергії, і це вже фізика. Наступні множники: інтервал 15 → 30 хв або джерело.</div>
+</section>
+
+<!-- ============ 8. what's next ============ -->
+<section class="slide" id="s8">
+  <div class="rail"><span><b>далі</b> · піни вже є</span><span class="n">8 / 8</span></div>
+  <div class="body">
+    <div class="two" style="grid-template-columns:.62fr 1.38fr">
+      <div class="stack">
+        <h2>Живлення закрите. Тепер довіра до чисел і плата, готова до поливу.</h2>
+        <p class="lede m">Пунктир на схемі це план. Ніжки під усе вже розведені.</p>
+        <div class="pills" style="flex-direction:column;align-items:flex-start">
+          <span class="pill dash p"><span class="dot"></span>DS18B20 · GPIO5 · температура ґрунту</span>
+          <span class="pill dash g"><span class="dot"></span>ґрунт 2 і 3 · резерв під щупи</span>
+          <span class="pill dash b"><span class="dot"></span>полив · реле 33/34 · витратомір 47/48</span>
+          <span class="pill gold"><span class="dot"></span>INA226 · реальна ємність банки</span>
+          <span class="pill teal"><span class="dot"></span>калібрувальна сесія · 30 хв під час поливу</span>
+        </div>
+      </div>
+      <figure class="photo" style="height:min(74vh,820px);border-radius:18px"><img src="assets/schema-node.png" alt="Схема вузла: гребінки J3 і J2 Heltec V3, сенсори, живлення, пунктиром майбутні модулі" style="object-fit:contain;background:#F7F7F2"></figure>
+    </div>
+  </div>
+  <div class="foot"><span>docs/довідка/плата-вузла.md · docs/плани</span><span>кінцева мета: клапани + витратомір + модель на зібраних даних</span></div>
+  <div class="notes">Наступний план: парний замір начисто 30 хв під час поливу, число розбіжності між сенсорами, перехресна перевірка постійний проти v2, датасет мінімум 7 діб, температура ґрунту. Без журналу поливу «ґрунт сохне» і «ніхто не полив» нерозрізненні, витратомір уже куплений.</div>
+</section>
+
+<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.slide'));
+  var lb=document.createElement('div');lb.className='lb';lb.innerHTML='<img alt=""><span class="hint">esc · закрити</span>';document.body.appendChild(lb);
+  var lbImg=lb.querySelector('img');
+  function lbOpen(src,alt){lbImg.src=src;lbImg.alt=alt||'';lb.classList.add('on');}
+  function lbClose(){lb.classList.remove('on');}
+  lb.addEventListener('click',lbClose);
+  [].forEach.call(document.querySelectorAll('.photo img,.chart img'),function(im){im.addEventListener('click',function(){lbOpen(im.src,im.alt)})});
+  var cnt=document.getElementById('cnt');
+  function cur(){var y=window.scrollY+window.innerHeight*0.4;var i=0;for(var k=0;k<slides.length;k++){if(slides[k].offsetTop<=y)i=k;}return i;}
+  function go(i){i=Math.max(0,Math.min(slides.length-1,i));slides[i].scrollIntoView({block:'start'});}
+  function upd(){cnt.textContent=(cur()+1)+' / '+slides.length;}
+  document.getElementById('prev').addEventListener('click',function(){go(cur()-1)});
+  document.getElementById('next').addEventListener('click',function(){go(cur()+1)});
+  document.getElementById('notesBtn').addEventListener('click',function(){document.body.classList.toggle('show-notes')});
+  document.addEventListener('keydown',function(e){
+    if(lb.classList.contains('on')){if(e.key==='Escape'||e.key==='ArrowRight'||e.key==='ArrowLeft'||e.key===' '){e.preventDefault();lbClose();}return;}
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(cur()+1);}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur()-1);}
+    else if(e.key==='Home'){go(0);}else if(e.key==='End'){go(slides.length-1);}
+    else if(e.key==='n'||e.key==='N'){document.body.classList.toggle('show-notes');}
+  });
+  window.addEventListener('scroll',upd,{passive:true});upd();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Презентації · Agro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F7F7F2; --panel:#EEF0E8; --ink:#2B2D2A; --muted:#7B7E74; --line:#D9DBD1;
+  --green:#4E7F49; --terra:#C2573A; --blue:#3B6E8F;
+  --sans:"Roboto",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Roboto Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:18px;line-height:1.45;-webkit-font-smoothing:antialiased}
+main{max-width:1040px;margin:0 auto;padding:clamp(28px,6vh,72px) clamp(20px,5vw,60px) 60px}
+.kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+h1{font-weight:700;font-size:clamp(30px,4.5vw,52px);line-height:1.08;letter-spacing:-.02em;margin:0 0 14px;max-width:22ch;text-wrap:balance}
+.lede{color:var(--muted);font-size:clamp(17px,1.5vw,21px);max-width:58ch;margin:0 0 clamp(28px,5vh,48px)}
+.decks{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+a.deck{display:flex;flex-direction:column;gap:12px;padding:24px 24px 20px;border:2px solid var(--line);border-radius:22px;background:var(--panel);color:inherit;text-decoration:none;transition:border-color .15s,transform .15s}
+a.deck:hover{border-color:var(--ink);transform:translateY(-2px)}
+.deck .n{font-family:var(--mono);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;display:flex;justify-content:space-between;color:var(--muted)}
+.deck .n b{font-weight:500}
+.deck h2{margin:0;font-size:clamp(21px,2vw,26px);line-height:1.15;letter-spacing:-.01em}
+.deck p{margin:0;color:var(--muted);font-size:16px;flex:1}
+.deck .go{font-family:var(--mono);font-size:13px;color:var(--ink)}
+.g{color:var(--green)} .t{color:var(--terra)} .b{color:var(--blue)}
+.deck.g{border-color:#CDE0CA} .deck.t{border-color:#EBD2C8} .deck.b{border-color:#CFDDE6}
+.deck.g:hover{border-color:var(--green)} .deck.t:hover{border-color:var(--terra)} .deck.b:hover{border-color:var(--blue)}
+section.more{margin-top:clamp(36px,7vh,64px);padding-top:24px;border-top:1.5px solid var(--line)}
+section.more h3{margin:0 0 10px;font-size:15px;font-family:var(--mono);font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul{margin:0;padding:0;list-style:none;display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+ul a{color:var(--ink);text-decoration:none;font-family:var(--mono);font-size:14px;border-bottom:1px solid var(--line)}
+ul a:hover{border-color:var(--ink)}
+.hint{margin-top:28px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.hint kbd{border:1px solid var(--line);border-radius:6px;padding:1px 7px;font:inherit;background:#fff}
+.back{display:inline-block;margin-top:34px;font-family:var(--mono);font-size:13px;color:var(--muted);text-decoration:none}
+.back:hover{color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Agro · моніторинг теплиць · липень – вересень 2026</p>
+  <h1>Три колоди про одне питання: скільки вузол проживе на батареї і чи можна вірити його ґрунту</h1>
+  <p class="lede">Історія шести тижнів між першим «LoRa: OK» і прошивкою v2, розказана з різною глибиною. Почніть з інтро, якщо система нова для вас; з «Від 2 до 588», якщо цікавить результат; докладна колода для тих, хто хоче побачити кожен замір.</p>
+
+  <div class="decks">
+    <a class="deck b" href="intro.html">
+      <span class="n"><b class="b">01 · Інтро</b><span>4 слайди</span></span>
+      <h2>Що будуємо і з чого</h2>
+      <p>Задача, шість рішень до першого пакета, плата вузла пін за піном, калібрування ґрунтового сенсора у відрі.</p>
+      <span class="go">Відкрити →</span>
+    </a>
+    <a class="deck t" href="2-to-588.html">
+      <span class="n"><b class="t">02 · Результат</b><span>8 слайдів</span></span>
+      <h2>Від 2 діб до 588</h2>
+      <p>Стільки прожив вузол на першому виїзді. Далі сім замірів, і жоден не дав того, чого чекали. Кожен слайд посилається на свій ноутбук.</p>
+      <span class="go">Відкрити →</span>
+    </a>
+    <a class="deck g" href="firmware-sensors.html">
+      <span class="n"><b class="g">03 · Докладно</b><span>38 слайдів</span></span>
+      <h2>Прошивка й сенсори: 22.07 – 02.09</h2>
+      <p>П'ять актів на шести тижнях. Два числа, які рухались після кожного заміру, і що саме кожен замір перевернув.</p>
+      <span class="go">Відкрити →</span>
+    </a>
+  </div>
+
+  <p class="hint">Навігація в колоді: <kbd>→</kbd> <kbd>←</kbd> або прокрутка. Кожен слайд на весь екран.</p>
+
+  <section class="more">
+    <h3>Ноутбуки з розрахунками</h3>
+    <ul>
+      <li><a href="notebooks/01_burst_shape.html">01 · форма бурста, шум і зсув</a></li>
+      <li><a href="notebooks/02_trend_dynamics.html">02 · динаміка тренду ґрунту</a></li>
+      <li><a href="notebooks/03_window_selection.html">03 · вибір вікна усереднення</a></li>
+      <li><a href="notebooks/04_soil_warmup.html">04 · крива прогріву сенсора</a></li>
+      <li><a href="notebooks/05_summary.html">05 · підсумок: енергетика вузла</a></li>
+      <li><a href="notebooks/06_data_quality.html">06 · якість даних, v1 проти v2</a></li>
+    </ul>
+    <p class="hint">Це html-знімки. Живі ноутбуки з даними лежать у репозиторії, тека <a href="https://github.com/martyn-ukrainian/raspberry-pi-lora-greenhouse-monitoring/tree/main/notebooks">notebooks/</a>.</p>
+  </section>
+
+  <a class="back" href="../">← до документації</a>
+</main>
+</body>
+</html>

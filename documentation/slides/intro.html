@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Інтро: що будуємо і з чого</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F7F7F2; --panel:#EEF0E8; --ink:#2B2D2A; --muted:#7B7E74; --line:#D9DBD1;
+  --green:#4E7F49; --green-soft:#E1EADF; --terra:#C2573A; --terra-soft:#F3DED6;
+  --purple:#5B4FA8; --blue:#3B6E8F; --magenta:#A63D7A; --gold:#8A6D1E; --teal:#2E7A78; --grey:#A9ACA3;
+  --sans:"Roboto",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Roboto Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-snap-type:y mandatory;background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:18px;line-height:1.45;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p{margin:0}
+h1,h2{font-weight:700;letter-spacing:-.015em;text-wrap:balance}
+code,.mono{font-family:var(--mono);font-size:.9em}
+.n{font-variant-numeric:tabular-nums}
+
+/* deck chrome */
+.deck-nav{position:fixed;left:50%;transform:translateX(-50%);top:18px;z-index:5;display:flex;gap:6px;align-items:center;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.deck-nav button{font:inherit;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer}
+.deck-nav button:hover{border-color:var(--ink)}
+.deck-nav .cnt{min-width:56px;text-align:center}
+
+/* slide */
+.slide{scroll-snap-align:start;height:100vh;min-height:640px;display:flex;flex-direction:column;padding:30px clamp(24px,5vw,80px) 28px;position:relative;overflow:hidden}
+.rail{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:12.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;padding-bottom:10px;border-bottom:1.5px solid var(--line)}
+.rail b{color:var(--ink);font-weight:500}
+.body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:clamp(14px,2.4vh,26px);max-width:1280px;width:100%;margin:0 auto;min-height:0}
+.foot{display:flex;justify-content:space-between;gap:20px;font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.04em;padding-top:10px;border-top:1.5px solid var(--line)}
+
+/* type scale */
+.kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.big{font-weight:700;font-size:clamp(64px,11vw,168px);line-height:.95;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.big.g{color:var(--green)} .big.t{color:var(--terra)}
+.big small{font-size:.32em;font-weight:500;color:var(--muted);letter-spacing:-.01em;margin-left:.15em}
+.slide h2{font-size:clamp(28px,3.6vw,50px);line-height:1.1;max-width:22ch}
+.slide h2.wide{max-width:34ch}
+.lede{font-size:clamp(17px,1.55vw,22px);max-width:60ch}
+.lede.m{color:var(--muted)}
+.arrow{font-weight:400;color:var(--muted);margin:0 .12em}
+
+/* layouts */
+.two{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(24px,4vw,56px);align-items:center;min-height:0}
+.two.r{grid-template-columns:.85fr 1.15fr}
+.two.eq{grid-template-columns:1fr 1fr}
+.stack{display:flex;flex-direction:column;gap:clamp(12px,2vh,22px);min-width:0}
+@media (max-width:860px){.two,.two.r,.two.eq{grid-template-columns:1fr}}
+
+/* photo */
+.photo{position:relative;border-radius:22px;overflow:hidden;border:2px solid var(--line);background:var(--panel);min-height:0}
+.photo img{width:100%;height:100%;object-fit:cover;display:block}
+.photo.tall{height:min(66vh,760px)}
+.photo.cover{height:min(70vh,800px)}
+.photo .tag{position:absolute;left:14px;bottom:14px;background:var(--bg);border:2px solid var(--ink);border-radius:999px;padding:6px 14px;font-family:var(--mono);font-size:12.5px;letter-spacing:.04em}
+.photo .tag.t{border-color:var(--terra);color:var(--terra)} .photo .tag.g{border-color:var(--green);color:var(--green)}
+
+/* chart */
+.chart{min-height:0;display:flex;align-items:center}
+.chart img{width:100%;height:auto;max-height:58vh;object-fit:contain;display:block}
+
+/* pills, like the schema */
+.pills{display:flex;flex-wrap:wrap;gap:10px 12px}
+.pill{display:inline-flex;align-items:center;gap:10px;border:2px solid var(--ink);border-radius:999px;padding:8px 18px 8px 14px;font-size:16px;line-height:1.25;background:var(--bg);white-space:nowrap}
+.pill .dot{width:12px;height:12px;border-radius:50%;background:var(--ink);flex:none}
+.pill code{font-size:12.5px;color:var(--muted)}
+.pill.g{border-color:var(--green)} .pill.g .dot{background:var(--green)}
+.pill.t{border-color:var(--terra)} .pill.t .dot{background:var(--terra)}
+.pill.p{border-color:var(--purple)} .pill.p .dot{background:var(--purple)}
+.pill.b{border-color:var(--blue)} .pill.b .dot{background:var(--blue)}
+.pill.m{border-color:var(--magenta)} .pill.m .dot{background:var(--magenta)}
+.pill.gold{border-color:var(--gold)} .pill.gold .dot{background:var(--gold)}
+.pill.teal{border-color:var(--teal)} .pill.teal .dot{background:var(--teal)}
+.pill.dash{border-style:dashed} .pill.dash .dot{background:transparent;border:2px dashed currentColor}
+.pill.dash.g{color:var(--green)} .pill.dash.p{color:var(--purple)} .pill.dash.b{color:var(--blue)}
+.pill.off{border-color:var(--grey);color:var(--muted)} .pill.off .dot{background:var(--grey)}
+.pill.off s{text-decoration-thickness:2px}
+.pill.x{padding-left:12px} .pill.x .dot{background:none;position:relative;width:14px;height:14px;border:2px solid var(--terra)}
+.pill.x .dot::before,.pill.x .dot::after{content:"";position:absolute;left:1px;top:4px;width:8px;height:2px;background:var(--terra);transform:rotate(45deg)}
+.pill.x .dot::after{transform:rotate(-45deg)}
+.pill.x{border-color:var(--terra)}
+.pill.lg{font-size:18px;padding:11px 22px 11px 16px}
+
+/* rail-style list (the header connectors) */
+.row{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;align-items:center;font-size:17px}
+.row .k{font-family:var(--mono);font-size:13px;color:var(--muted);letter-spacing:.04em;text-align:right;white-space:nowrap}
+.row .v{border-left:2px dashed var(--line);padding-left:16px}
+.row .v.on{border-left:3px solid var(--terra)}
+
+/* table */
+table{border-collapse:collapse;width:100%;font-size:15.5px}
+th,td{text-align:left;padding:8px 14px 8px 0;border-bottom:1.5px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono);font-size:13.5px;color:var(--muted)}
+tr.hi td{color:var(--green);font-weight:700}
+tr.dim td{color:var(--muted)}
+
+/* stat blocks */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.stat{border:2px solid var(--line);border-radius:18px;padding:10px 12px;min-width:0}
+.stat .l{font-family:var(--mono);font-size:11px;letter-spacing:.06em;white-space:nowrap;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-size:clamp(22px,2.3vw,32px);font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:4px;font-variant-numeric:tabular-nums}
+.stat .s{font-size:14px;color:var(--muted);margin-top:4px}
+.stat.g{border-color:var(--green)} .stat.g .v{color:var(--green)}
+.stat.t{border-color:var(--terra)} .stat.t .v{color:var(--terra)}
+@media (max-width:860px){.stats{grid-template-columns:1fr}}
+
+/* the 0.98 -> 0.01 */
+.jump{display:grid;grid-template-columns:auto auto auto;gap:18px;align-items:center;justify-content:start}
+.jump .num{font-size:clamp(52px,7.5vw,112px);font-weight:700;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+.jump .num small{display:block;font-family:var(--mono);font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:400;margin-top:8px}
+.jump .num.t{color:var(--terra)} .jump .num.g{color:var(--green)}
+.jump .x{font-family:var(--mono);font-size:clamp(16px,1.6vw,22px);color:var(--muted);border:2px solid var(--line);border-radius:999px;padding:8px 16px;white-space:nowrap}
+
+.foot a,.rail a{color:var(--green);text-decoration:none;border-bottom:1.5px dashed var(--green)}
+.foot a:hover{border-bottom-style:solid}
+.foot a::after{content:" ↗";font-size:.9em}
+.photo img,.chart img{cursor:zoom-in}
+.lb{position:fixed;inset:0;z-index:20;background:rgba(247,247,242,.97);display:none;align-items:center;justify-content:center;padding:28px;cursor:zoom-out}
+.lb.on{display:flex}
+.lb img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.lb .hint{position:absolute;top:18px;right:24px;font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.notes{display:none;margin-top:12px;padding:10px 14px;border:1.5px dashed var(--line);border-radius:14px;font-size:14px;color:var(--muted);max-width:90ch}
+body.show-notes .notes{display:block}
+.notes::before{content:"доповідач · ";font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase}
+
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+@media print{.slide{height:auto;page-break-after:always}.deck-nav{display:none}}
+
+.flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;gap:12px;align-items:center}
+.flow .box{border:2px solid var(--ink);border-radius:20px;padding:14px 16px;background:var(--bg);min-width:0}
+.flow .box b{display:block;font-size:17px;margin-bottom:4px}
+.flow .box span{display:block;font-family:var(--mono);font-size:12.5px;color:var(--muted);line-height:1.5}
+.flow .box.g{border-color:var(--green)} .flow .box.t{border-color:var(--terra)} .flow .box.b{border-color:var(--blue)} .flow .box.teal{border-color:var(--teal)}
+.flow .link{font-family:var(--mono);font-size:11.5px;color:var(--muted);text-align:center;letter-spacing:.04em;line-height:1.4}
+.flow .link::before{content:"";display:block;width:100%;border-top:2px dashed var(--line);margin-bottom:6px}
+@media (max-width:900px){.flow{grid-template-columns:1fr}.flow .link::before{display:none}}
+.why td:first-child{font-weight:500}
+.why td.alt{font-family:var(--mono);font-size:13.5px;color:var(--muted);text-decoration:line-through}
+.rules{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:start;font-size:15px;line-height:1.4}
+.rules .n{font-family:var(--mono);font-size:13px;color:var(--terra);border:2px solid var(--terra);border-radius:999px;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+.rules b{display:block;margin-bottom:2px}
+</style>
+</head>
+<body>
+
+<div class="deck-nav"><button id="prev" aria-label="попередній">←</button><span class="cnt n" id="cnt">1 / 4</span><button id="next" aria-label="наступний">→</button><button id="notesBtn">N · нотатки</button></div>
+
+<!-- ============ 1. SYSTEM ============ -->
+<section class="slide" id="s1">
+  <div class="rail"><span><b>agro</b> · інтро · що будуємо</span><span>теплиці · вологість ґрунту · полив</span></div>
+  <div class="body">
+    <div class="stack" style="gap:8px">
+      <p class="kicker">Задача</p>
+      <h2 class="wide">Дві культури під однією плівкою хочуть протилежного. Вузол мусить сам правильно міряти ґрунт, інакше нема чим замикати контур поливу.</h2>
+    </div>
+    <div class="pills">
+      <span class="pill g"><span class="dot"></span>огірки · 24–28 °C · повітря 75–90 % · пріоритет полив і тепло</span>
+      <span class="pill t"><span class="dot"></span>помідори · повітря 60–70 % · вище фітофтора · пріоритет вентиляція</span>
+      <span class="pill off"><span class="dot"></span>щуп бачить 10 см навколо себе · мінімум 2–3 на зону, рішення за медіаною</span>
+    </div>
+    <div class="flow">
+      <div class="box g"><b>Вузол у теплиці</b><span>Heltec WiFi LoRa 32 V3 · ESP32-S3<br>SHT31 · ємнісний щуп ґрунту<br>18650 · deep sleep, прокидається на вимір</span></div>
+      <div class="link">LoRa 868 МГц<br>P2P, бінарний struct</div>
+      <div class="box teal"><b>Шлюз</b><span>той самий Heltec V3, стаціонарний<br>додає RSSI / SNR<br>NDJSON → USB або Wi-Fi TCP</span></div>
+      <div class="link">USB / TCP<br>JSON</div>
+      <div class="box b"><b>Raspberry Pi 5</b><span>usb_adapter.py<br>FastAPI + SQLite<br>алерти · Telegram-бот</span></div>
+      <div class="link">LAN / LTE</div>
+      <div class="box t"><b>Клієнти</b><span>Expo APK на планшеті<br>/live · /stage3<br>Vercel + Neon · /nodes</span></div>
+    </div>
+    <div class="two" style="grid-template-columns:1fr 1fr;align-items:start">
+      <p class="lede m">LoRa P2P, не LoRaWAN: кілька теплиць і одна база, власний протокол, без чужого сервера. Вузол на батареї і спить, шлюз живиться від Pi. Саме тому Wi-Fi є у шлюза і нема у вузла.</p>
+      <div class="pills"><span class="pill teal"><span class="dot"></span>рішення про воду не залежить від радіо</span><span class="pill b"><span class="dot"></span>база ставить ціль «доведи до 60 %», вузол сам ллє і зупиняється</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/довідка/architecture.md · INGEST-CONTRACT</span><span>хмарна частина і клієнт далі не фігурують: це не прошивка і не сенсори</span></div>
+  <div class="notes">Два шари протоколу: бінарний struct у радіо, JSON по USB. Формат пакета зафіксовано в INGEST-CONTRACT. Одна точка виміру не дорівнює стану теплиці, тому кілька щупів на зону і рішення за медіаною.</div>
+</section>
+
+<!-- ============ 2. COMPONENTS AND WHY ============ -->
+<section class="slide" id="s2">
+  <div class="rail"><span><b>інтро</b> · комплектуючі · чому таке рішення</span><span class="n">2 / 4</span></div>
+  <div class="body">
+    <div class="two" style="grid-template-columns:1.25fr .75fr;align-items:start">
+      <div class="stack">
+        <h2 class="wide">Шість рішень, ухвалених до першого пакета</h2>
+        <table class="why">
+          <tr><th>обрано</th><th>замість</th><th>чому</th></tr>
+          <tr><td>868 МГц</td><td class="alt">433</td><td>легальна LoRa-частота для України та ЄС</td></tr>
+          <tr><td>ємнісний щуп ґрунту v2.0</td><td class="alt">резистивний</td><td>резистивний кородує за тижні; для системи, що керує водою, це небезпечно</td></tr>
+          <tr><td>SHT31-D по I²C</td><td class="alt">DHT11 / DHT22</td><td>комерційна надійність, цифрова шина</td></tr>
+          <tr><td>Heltec WiFi LoRa 32 V3</td><td class="alt">V4</td><td>зріліша платформа; сонячний конектор у фазі 1 не потрібен</td></tr>
+          <tr><td>Raspberry Pi 5, 2 ГБ</td><td class="alt">вживаний міні-ПК</td><td>офіційний комплект прибрав різницю в ціні</td></tr>
+          <tr><td>LoRa P2P</td><td class="alt">LoRaWAN</td><td>надлишковий для «кілька теплиць + база»</td></tr>
+        </table>
+        <div class="pills">
+          <span class="pill g"><span class="dot"></span>Heltec V3 ×3 <code>· ESP32-S3 + SX1262 · OLED · u.FL</code></span>
+          <span class="pill b"><span class="dot"></span>SHT31-D ×4 <code>· повітря</code></span>
+          <span class="pill g"><span class="dot"></span>щупи ґрунту ×6 <code>· v1.2 і v2.0</code></span>
+          <span class="pill gold"><span class="dot"></span>NCR18650B ×2 <code>· 3400 мА·год · TP4056 + захист 1S</code></span>
+          <span class="pill teal"><span class="dot"></span>антена 868 · SMA</span>
+          <span class="pill p"><span class="dot"></span>Raspberry Pi 5 + корпус</span>
+          <span class="pill off"><span class="dot"></span>витратоміри · клапан · реле · INA226 ×2 <code>· на потім</code></span>
+        </div>
+      </div>
+      <div class="stack">
+        <figure class="photo" style="height:min(40vh,420px)"><img src="assets/gateway-pi-heltec.jpg" alt="Raspberry Pi 5 у корпусі та Heltec V3 у білому корпусі з антеною, шлюз"><span class="tag">шлюз · Pi 5 + Heltec V3</span></figure>
+        <table>
+          <tr><th>куди пішли ≈13 400 грн</th><th class="r">грн</th></tr>
+          <tr><td>Raspberry Pi 5 + корпус</td><td class="r">4 870</td></tr>
+          <tr><td>3× Heltec V3</td><td class="r">2 798</td></tr>
+          <tr><td>інструмент і витратні</td><td class="r">≈2 000</td></tr>
+          <tr><td>датчики: SHT31, ґрунт, витратоміри, клапан, реле</td><td class="r">≈1 500</td></tr>
+          <tr><td>монтаж і обв'язка</td><td class="r">≈900</td></tr>
+          <tr><td>живлення: 18650, тримачі, БЖ 12 В</td><td class="r">≈430</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/довідка/комплектуючі.md · сім замовлень, 09.07 – 28.08</span><span>найдорожче сервер і плати, сенсори копійчані, зате з ними найбільше роботи</span></div>
+  <div class="notes">Калібрування ґрунту задумано гравіметричним: кухонні ваги й духовка. Абсолютна точність не потрібна, достатньо для тригера поливу. Ціни фактично сплачені, у гривні на дату замовлення; партія від 27.08 у реєстрі без цін.</div>
+</section>
+
+<!-- ============ 3. BOARD ============ -->
+<section class="slide" id="s3">
+  <div class="rail"><span><b>інтро</b> · плата вузла · шина Ve</span><span class="n">3 / 4</span></div>
+  <div class="body">
+    <div class="two" style="grid-template-columns:.78fr 1.22fr">
+      <div class="stack" style="gap:14px">
+        <h2 style="font-size:clamp(22px,2.3vw,32px);max-width:30ch">Кожен пін має причину. Пін без причини це або витік у сні, або сюрприз при завантаженні.</h2>
+        <div class="rules">
+          <span class="n">1</span><div><b>Одна шина Ve на всю периферію.</b> GPIO36, LOW = увімкнено. Щупи, I²C, підтяжки живляться лише тоді, коли вузол міряє. 3V3 лишається джампером, не робочим варіантом.</div>
+          <span class="n">2</span><div><b>Пін, що лишився виходом, це витік.</b> Перед сном усі периферійні піни в INPUT, інакше вони живлять сплячі чипи.</div>
+          <span class="n">3</span><div><b>Дві I²C-шини, і вони не з'єднані.</b> Wire для вбудованого OLED, v2 його не піднімає. Wire1 на GPIO41/42 для SHT31 і всього майбутнього I²C.</div>
+          <span class="n">4</span><div><b>Щупи аналогові, всі на ADC1.</b> ADC2 ділиться з Wi-Fi. Ґрунт 1 на GPIO2, під два наступні щупи піни вже є.</div>
+        </div>
+        <div class="pills">
+          <span class="pill t"><span class="dot"></span>Ve · GPIO36 · LOW = on</span>
+          <span class="pill off"><span class="dot"></span>VBAT дільник · GPIO37 · HIGH = on</span>
+          <span class="pill x"><span class="dot"></span>нічого на постійні 3V3</span>
+        </div>
+      </div>
+      <figure class="photo" style="height:min(74vh,820px);border-radius:18px"><img src="assets/schema-node.png" alt="Схема вузла: гребінки J3 і J2 Heltec V3, сенсори, живлення, пунктиром майбутні модулі" style="object-fit:contain;background:#F7F7F2"><span class="tag">клік · на весь екран</span></figure>
+    </div>
+  </div>
+  <div class="foot"><span>docs/довідка/плата-вузла.md · firmware/greenhouse-node-v2/src/core/board.h</span><span>пунктир на схемі: DS18B20, ґрунт 2 і 3, полив на іншій платі</span></div>
+  <div class="notes">Перенесення SHT31 на Ve дало 1.00 → 0.01 мА у сні й коштувало 0.08 % RH. Після подачі Ve пауза 20 мс, інакше SHT31 повертає NAN. LoRa SX1262 на GPIO8–14, внутрішні, на гребінки не виходять. 470 мкФ low ESR + 100 нФ на 3V3 біля плати проти просідань під час передачі.</div>
+</section>
+
+<!-- ============ 4. CALIBRATION ============ -->
+<section class="slide" id="s4">
+  <div class="rail"><span><b>інтро</b> · калібрування · відро з 1 кг ґрунту · 22.08</span><span class="n">4 / 4</span></div>
+  <div class="body">
+    <div class="two" style="grid-template-columns:1fr 1fr;align-items:start">
+      <div class="stack">
+        <h2 style="font-size:clamp(24px,2.8vw,38px);max-width:26ch">Перший день з відром: v2.0 виграє, але не тим, чим здавалось.</h2>
+        <p class="lede m" style="font-size:16px">1 кг ґрунту, кухонні ваги, вода порціями по 50 мл. Окрема стендова прошивка пише raw ADC і мВ по USB. Два екземпляри кожної версії, той самий канал, та сама ямка, тож різниця може йти лише від сенсора.</p>
+        <table style="font-size:15px">
+          <tr><th></th><th class="r">v1.2</th><th class="r">v2.0</th><th></th></tr>
+          <tr class="dim"><td>повітря</td><td class="r">2229 мВ</td><td class="r">2721 мВ</td><td class="mono">розмах ×2.4, і це нічого не значить</td></tr>
+          <tr class="dim"><td>сухий ґрунт</td><td class="r">2101 мВ</td><td class="r">2409 мВ</td><td></td></tr>
+          <tr class="hi"><td>шум σ</td><td class="r">2.9 мВ</td><td class="r">1.05 мВ</td><td class="mono">у 2.8 раза тихіше</td></tr>
+          <tr class="hi"><td>прогрів T±10</td><td class="r">0.4 с</td><td class="r">0.1 с</td><td class="mono">у 4 рази швидше</td></tr>
+          <tr><td>чутливість до води</td><td class="r">12.6 мВ/мл</td><td class="r">12.1 мВ/мл</td><td class="mono">однакова</td></tr>
+        </table>
+        <div class="pills">
+          <span class="pill g"><span class="dot"></span>відгук нелінійний: кожні 50 мл роблять 35 % роботи попередніх</span>
+          <span class="pill t"><span class="dot"></span>шкала логарифмічна: половина води = 50 %, а map() каже 94 %</span>
+          <span class="pill b"><span class="dot"></span>контроль: v1.2-A вдруге в ту ж ямку · 9 мВ · похибка процедури</span>
+          <span class="pill off"><span class="dot"></span>після доливу ґрунт повертається експонентою, τ 2.5–4.5 хв</span>
+        </div>
+      </div>
+      <div class="stack" style="gap:12px">
+        <figure class="photo" style="height:min(36vh,380px)"><img src="assets/calibration-bench.jpg" alt="Стенд калібрування: ноутбук, плата на столі, відро з ґрунтом і двома щупами на кухонних вагах"><span class="tag g">відро 1 кг · ваги · два щупи · USB</span></figure>
+        <div class="chart"><img style="max-height:36vh" src="assets/chart-calibration-curve.svg" alt="Крива вода проти мілівольт для v2.0: від 2409 у сухому до 874 після 420 мл, експонента з k близько 52 мл"></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>README.md · docs/дослідження/калібрування-ґрунту.md · firmware/soil-calibration</span><span>v1.2 це 5-вольтова схема на 3.3 В; у вузлі 5 В нема</span></div>
+  <div class="notes">Різниця версій 310 мВ це 34 похибки процедури і стоїть. Розкид 2–5 мВ між екземплярами однієї партії нижче похибки і знятий як незаміряний. Модель кривої: C + A·e^(−V/k), k ≈ 52 мл, RMS підгонки 9.7 мВ на діапазоні 1535 мВ, тобто 0.6 %. Наслідок: 240-кратний розкид чутливості, 12 мВ/мл у сухому ґрунті і 0.05 у политій грядці, тому відсоток рахуємо логарифмічно. Прогрів T±10 виміряно на стенді без циклу сну; у полі перший відлік через 87 мс після пробудження стабільно на 22 одиниці нижчий. Нічний прогін: температура перемагає висихання, звідси підозра на температурний дрейф щупа.</div>
+</section>
+
+<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.slide'));
+  var lb=document.createElement('div');lb.className='lb';lb.innerHTML='<img alt=""><span class="hint">esc · закрити</span>';document.body.appendChild(lb);
+  var lbImg=lb.querySelector('img');
+  function lbOpen(src,alt){lbImg.src=src;lbImg.alt=alt||'';lb.classList.add('on');}
+  function lbClose(){lb.classList.remove('on');}
+  lb.addEventListener('click',lbClose);
+  [].forEach.call(document.querySelectorAll('.photo img,.chart img'),function(im){im.addEventListener('click',function(){lbOpen(im.src,im.alt)})});
+  var cnt=document.getElementById('cnt');
+  function cur(){var y=window.scrollY+window.innerHeight*0.4;var i=0;for(var k=0;k<slides.length;k++){if(slides[k].offsetTop<=y)i=k;}return i;}
+  function go(i){i=Math.max(0,Math.min(slides.length-1,i));slides[i].scrollIntoView({block:'start'});}
+  function upd(){cnt.textContent=(cur()+1)+' / '+slides.length;}
+  document.getElementById('prev').addEventListener('click',function(){go(cur()-1)});
+  document.getElementById('next').addEventListener('click',function(){go(cur()+1)});
+  document.getElementById('notesBtn').addEventListener('click',function(){document.body.classList.toggle('show-notes')});
+  document.addEventListener('keydown',function(e){
+    if(lb.classList.contains('on')){if(e.key==='Escape'||e.key==='ArrowRight'||e.key==='ArrowLeft'||e.key===' '){e.preventDefault();lbClose();}return;}
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(cur()+1);}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur()-1);}
+    else if(e.key==='Home'){go(0);}else if(e.key==='End'){go(slides.length-1);}
+    else if(e.key==='n'||e.key==='N'){document.body.classList.toggle('show-notes');}
+  });
+  window.addEventListener('scroll',upd,{passive:true});upd();
+})();
+</script>
+</body>
+</html>
